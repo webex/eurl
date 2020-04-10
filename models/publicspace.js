@@ -2,7 +2,8 @@
 const mongoose = require('mongoose');
 
 // connect to db and define db schema
-mongoose.connect(process.env.MONGO_URI, {useMongoClient: true});
+//mongoose.connect(process.env.MONGO_URI, {useMongoClient: true}); - removed by TH
+mongoose.connect(process.env.MONGO_URI, {}); //edit by TH
 
 const Schema = mongoose.Schema;
 

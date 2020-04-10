@@ -16,7 +16,7 @@
     "express": "^4.14.0",
     "express-session": "^1.15.6",
     "express-winston": "^2.4.0",
-    "mongoose": "^4.7.3",
+    "mongoose": "^5.9.4",
     "node-env-file": "^0.1.8",
     "qr-image": "^3.2.0",
     "shortid": "^2.2.6",

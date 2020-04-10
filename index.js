@@ -313,6 +313,10 @@ app.get('/', function(req, res){
 	res.sendFile(path.join(__dirname, 'views/index.html'));
 });
 
+app.get('/alive', function(req, res){
+	res.status(200).send('OK');
+});
+
 // authenticate user link
 app.get('/a/:tempPwd', function(req, res){
 
@@ -2874,10 +2878,8 @@ var init = function() {
 					type: "space"
 				});
 			});
-
 			// start to process membership cache jobs
 			processJobs(jobs.cache.memberships);
-
 		}
 
 	});
@@ -2889,7 +2891,7 @@ var init = function() {
 	setInterval(function(){
 		getBotDetails();
 	}, 1000 * 60 * 60);
-
+  console.log('end of init')
 }
 
 // global function to get bot details from teams
