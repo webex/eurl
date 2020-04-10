@@ -1178,7 +1178,7 @@ app.post('/api/webhooks', function(req, res){
 			// rest of checks are for group spaces
 
 			// anyone can join space (default)
-			else if (commandMatch('internal\\s+off', message.text)) {
+			else if (commandMatch('internal\\s+off\\b', message.text)) {
 
 				// check if permitted to issue this command
 				if (
@@ -1237,7 +1237,7 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// don't show space externally
-			else if (commandMatch('internal', message.text)) {
+			else if (commandMatch('internal\\b', message.text)) {
 
 				var internalDomains = [
 					personDomain
@@ -1308,7 +1308,7 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// disable description for space
-			else if (commandMatch('description\\s+off', message.text)) {
+			else if (commandMatch('description\\s+off\\b', message.text)) {
 
 				// check if permitted to issue this command
 				if (
@@ -1372,7 +1372,7 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// set description for space
-			else if (commandMatch('description', message.text)) {
+			else if (commandMatch('description\\b', message.text)) {
 
 				// check if permitted to issue this command
 				if (
@@ -1463,7 +1463,7 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// revert to previous shortId for this space
-			else if (commandMatch('url\\s+previous', message.text)) {
+			else if (commandMatch('url\\s+previous\\b', message.text)) {
 
 				// check if permitted to issue this command
 				if (
@@ -1528,7 +1528,7 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// regenerate a new shortid for this space
-			else if (commandMatch('url\\s+new', message.text)) {
+			else if (commandMatch('url\\s+new\\b', message.text)) {
 
 				// check if permitted to issue this command
 				if (
@@ -1592,7 +1592,7 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// disable logo for space
-			else if (commandMatch('logo\\s+off', message.text)) {
+			else if (commandMatch('logo\\s+off\\b', message.text)) {
 
 				// check if permitted to issue this command
 				if (
@@ -1656,7 +1656,7 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// set logo for space
-			else if (commandMatch('logo', message.text)) {
+			else if (commandMatch('logo\\b', message.text)) {
 
 				// check if permitted to issue this command
 				if (
@@ -1759,7 +1759,7 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// don't show space publicly
-			else if (commandMatch('list\\s+off', message.text)) {
+			else if (commandMatch('list\\s+off\\b', message.text)) {
 
 				// check if permitted to issue this command
 				if (
@@ -1832,7 +1832,7 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// show space publicly
-			else if (commandMatch('list', message.text)) {
+			else if (commandMatch('list\\b', message.text)) {
 
 				// check if permitted to issue this command
 				if (
@@ -1907,7 +1907,7 @@ app.post('/api/webhooks', function(req, res){
 			// add the user to the support space for this bot if support space id provided
 			else if (
 						process.env.WEBEXTEAMS_SUPPORT_SPACE_ID
-						&& commandMatch('support', message.text)
+						&& commandMatch('support\\b', message.text)
 						) {
 
 				// add person to support space
@@ -1938,12 +1938,12 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// send source link
-			else if (commandMatch('source', message.text)) {
+			else if (commandMatch('source\\b', message.text)) {
 				sendResponse(message.roomId, "You can find the source code for me at " + sourceUrl);
 			}
 
 			// send qr code to space
-			else if (commandMatch('qr', message.text)) {
+			else if (commandMatch('qr\\b', message.text)) {
 
 				// get space from db
 				Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
@@ -1984,7 +1984,10 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// get url to join space
-			else if (commandMatch('url', message.text)) {
+			else if (
+				commandMatch('url\\b', message.text)
+				|| commandMatch('$', message.text)
+				) {
 
 				// get space from db
 				Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
@@ -2023,7 +2026,7 @@ app.post('/api/webhooks', function(req, res){
 			}
 
 			// sent help command or didn't recognize the message content/command. send help
-			else {
+			else if (commandMatch('', message.text)) {
 
 				// get space from db
 				Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
@@ -2043,7 +2046,6 @@ app.post('/api/webhooks', function(req, res){
 
 							// make it public and send help details
 							createPublicSpace(req, space, {}, function(){
-								sendJoinDetails(publicspace);
 								sendHelpGroup(publicspace);
 							});
 
@@ -2449,11 +2451,13 @@ function sendHelpGroup(publicspace) {
 		supportMarkdown+
 		"**`help`** - List commands<br>\n"+
 		"\nYou can message me directly to search public and internal spaces.<br>\n\n";
-	sendResponse(publicspace.spaceId, markdown);
+	sendResponse(publicspace.spaceId, markdown, [], function(){
+		sendJoinDetails(publicspace);
+	});
 }
 
 // global function to send response message to space
-function sendResponse(spaceId, markdown, files = []) {
+function sendResponse(spaceId, markdown, files = [], success = undefined) {
 
 	// set options
 	var options = {
@@ -2468,6 +2472,10 @@ function sendResponse(spaceId, markdown, files = []) {
 	.then(function(message) {
 
 		// message sent
+
+		// success callback if defined
+		if (typeof(success) === "function")
+			success();
 
 	})
 	.catch(function(err){
@@ -2635,11 +2643,8 @@ function createPublicSpace(req, space, optionsOverride, success = undefined) {
 					success(options);
 
 				// default send join details
-				else {
+				else
 					sendJoinDetails(options);
-					sendHelpGroup(options);
-				}
-
 
 			}
 
@@ -2845,8 +2850,8 @@ function addJob(jobs, job) {
 
 // check if command was sent
 var commandMatch = function(commandRegExp, messageText) {
-	var botCommandRegExp = new RegExp('('+botDetails.displayName+'|'+botDetails.displayName.split(' ')[0]+'|\\b)'+commandRegExp+'\\b', 'i');
-	if (messageText.match(botCommandRegExp))
+	var botCommandRegExp = new RegExp('^('+botDetails.displayName+'|'+botDetails.displayName.split(' ')[0]+')\\s*'+commandRegExp, 'i');
+	if (messageText.trim().match(botCommandRegExp))
 		return true;
 	else
 		return false;
