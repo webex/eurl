@@ -80,10 +80,15 @@ else
 	description = process.env.DESCRIPTION;
 
 var supportEmail = '';
-if (!process.env.SUPPORT_EMAIL)
-	console.log('Warn: You should have a support email set in environment as "SUPPORT_EMAIL" so users can contact you.');
-else
+var supportUrl = '';
+if (!process.env.SUPPORT_EMAIL){
+	if (!process.env.SUPPORT_URL)
+		console.log('Warn: You should have a support email or url set in environment as "SUPPORT_URL" so users can contact you.');
+	else
+		supportUrl = process.env.SUPPORT_URL;
+}else{
 	supportEmail = process.env.SUPPORT_EMAIL;
+}
 
 if (!process.env.ADMIN_PORT)
 	console.log('Warn: Admin apis are disabled. Specify a TCP port to use in environment as "ADMIN_PORT" to enable them.');
@@ -300,10 +305,12 @@ app.get('/js/config.js', function(req, res){
 	res.charset = "UTF-8";
 	var javascriptConfig = `
 		var supportEmail = "`+supportEmail+`";
+		var supportUrl = "`+supportUrl+`";
 		var description = "`+description+`";
 		var botAvatar = "`+botDetails.avatar+`";
 		var botName = "`+botDetails.displayName+`";
 		var botEmail = "`+botDetails.emails[0]+`";
+		var botId = "`+botDetails.id+`";
 		`;
 	res.send(javascriptConfig);
 });
@@ -957,7 +964,7 @@ app.post('/api/webhooks', textParser, function(req, res, next){
 	// there was a change to membership to a space for a user other than the bot
 	if (
 		req.body.resource == 'memberships'
-		&& req.body.data.personEmail.toLowerCase() != botDetails.emails[0].toLowerCase()
+		&& req.body.data.personId != botDetails.id
 		) {
 
 		// check if domain is permitted
@@ -972,7 +979,7 @@ app.post('/api/webhooks', textParser, function(req, res, next){
 	else if (
 		req.body.resource == 'messages'
 		&& req.body.event == 'created'
-		&& req.body.data.personEmail.toLowerCase() != botDetails.emails[0].toLowerCase()
+		&& req.body.data.personId != botDetails.id
 		) {
 
 		// check if domain is permitted
@@ -1072,9 +1079,9 @@ app.post('/api/webhooks', function(req, res){
 	if (
 		req.body.resource == 'messages'
 		&& req.body.event == 'created'
-		&& req.body.data.personEmail != botDetails.emails[0]
+		&& req.body.data.personId != botDetails.id
 		) {
-
+		console.log(req.body);
 		// var to contain the response message
 		var response;
 
@@ -1093,9 +1100,9 @@ app.post('/api/webhooks', function(req, res){
 			if (message.roomType == 'direct') {
 
 				var sentHelp = false;
-
+				let response = "";
 				if (message.text.match(/^\s*help\s*$/i)) {
-					sendHelpDirect(message.roomId);
+					response += sendHelpDirect();
 					sentHelp = true;
 				}
 
@@ -1127,21 +1134,26 @@ app.post('/api/webhooks', function(req, res){
 					else {
 
 						// no spaces found and senthelp
+						/*
 						if (
 							publicspaces.length === 0
 							&& sentHelp
 							)
 							return;
-
+						*/
 						// no spaces found
-						else if (publicspaces.length === 0)
-							response = "I couldn't find any spaces for **"+query+"**";
+						if (publicspaces.length === 0)
+							response += "I couldn't find any spaces matching the term **"+query+"**.  \n";
 
 						// 1 or more found spaces. build list
 						else {
 
 							// tell user what was found using what query
-							response = "I found **"+publicspaces.length+"** spaces for **"+query+"**\n\n";
+							let s = "s";
+							if(publicspaces.length == 1){
+								s = "";
+							}
+							response += "I found **"+publicspaces.length+"** space"+s+" with the term **"+query+"**.  \n";
 
 							// create arrays of what was found for spaces they're in and not in
 							var toJoin = [];
@@ -1151,9 +1163,9 @@ app.post('/api/webhooks', function(req, res){
 									cache.memberships[message.personEmail.toLowerCase()]
 									&& cache.memberships[message.personEmail.toLowerCase()].includes(publicspace.shortId)
 									)
-									joined.push("> ["+publicspace.title+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")<br>\n");
+									joined.push("> ["+publicspace.title+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")  \n");
 								else
-									toJoin.push("> ["+publicspace.title+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")<br>\n");
+									toJoin.push("> ["+publicspace.title+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")  \n");
 							});
 
 							// create output based on what was found
@@ -1162,11 +1174,14 @@ app.post('/api/webhooks', function(req, res){
 							if (toJoin.length > 0 && joined.length > 0)
 								response += "\n\n";
 							if (joined.length > 0)
-								response += "You're already a member of these spaces\n\n" + joined.join("");
+								response += "You're already a member of these spaces:  \n" + joined.join("");
 
 						}
 
 						// respond
+						if(sentHelp){
+							response += "\n\nYou can also visit https://eurl.io/ for a full list of joinable spaces.  \n"
+						}
 						sendResponse(message.roomId, response);
 
 					}
@@ -2149,7 +2164,7 @@ app.post('/api/webhooks', function(req, res){
 	// there was a change to membership to a space for a user other than the bot
 	else if (
 		req.body.resource == 'memberships'
-		&& req.body.data.personEmail.toLowerCase() != botDetails.emails[0].toLowerCase()
+		&& req.body.data.personId != botDetails.id
 		) {
 
 		// holds email in lowercase and spaceId
@@ -2201,7 +2216,7 @@ app.post('/api/webhooks', function(req, res){
 	// there was a change to the bots membership to a space
 	else if (
 		req.body.resource == 'memberships'
-		&& req.body.data.personEmail.toLowerCase() == botDetails.emails[0].toLowerCase()
+		&& req.body.data.personId == botDetails.id
 		&& (
 			req.body.event == 'created'
 			|| req.body.event == 'updated'
@@ -2417,9 +2432,14 @@ function sendPermissionDenied(spaceId) {
 }
 
 // global function to send direct help
-function sendHelpDirect(spaceId) {
-	var markdown = "I'll use messages you send in this space to search for public and internal spaces you can join. Add me to a group space so I can help people join there";
-	sendResponse(spaceId, markdown);
+function sendHelpDirect() {
+	let markdown = "I can add users to group spaces. Add me to a group space so I can help people join it.  \n";
+	markdown += "* Sending the **help** command to me in a group space will show the full list of commands available for group spaces.\n\n";
+	markdown += "My functionality in direct spaces is different. In this direct space, you can type a word or phrase and I'll search for available public and internal spaces that match your search term. "
+	markdown += "For example, searching your available spaces for the word **help**:\n\n"
+	//let markdown = "I'll use messages you send in this space to search for public and internal spaces you can join. Add me to a group space so I can help people join there";
+	//sendResponse(spaceId, markdown);
+	return markdown;
 }
 
 // global function to send help

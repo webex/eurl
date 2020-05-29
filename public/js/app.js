@@ -436,6 +436,8 @@ function handleBotResults(data) {
 			var message = "Couldn't add to Webex Teams space";
 			if (supportEmail != '')
 				message += "<br/>Contact <a href='mailto:"+supportEmail+"'>"+supportEmail+"</a>";
+      else if (supportUrl != '')
+        message += "<br/>Contact <a href='"+supportUrl+"' target='_blank'>Support</a>";
 			$('#message').html(message);
 			$('#input').html('');
 			break;
@@ -537,11 +539,14 @@ function setLogo(logoUrl, logoTitle, rounded) {
 
 function setup() {
 	document.title = botName+' | Join Webex Teams Spaces';
-	if (supportEmail != '') {
+	if (supportEmail != '' || supportUrl != '') {
 		$('#support').show();
 		var supportSubject = 'Question about joining Webex Teams Space via '+botName+' ('+botEmail+')';
 		$('#support').on('click', function() {
-			window.location.href='mailto:'+supportEmail+'?subject='+supportSubject+' '+shortId+'&body='+window.location.href;
+      if(supportEmail != '')
+			  window.location.href='mailto:'+supportEmail+'?subject='+supportSubject+' '+shortId+'&body='+window.location.href;
+      else
+        window.open('https://developer.webex.com/support', '_blank');
 		});
 	}
 	$('#emailContainer').on('click', function() {
