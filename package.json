@@ -1,5 +1,5 @@
 {
-  "name": "publicspaces-webexteams",
+  "name": "eurl",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -25,10 +25,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/birdietiger/publicspaces-webexteams.git"
+    "url": "https://github.com/webex/eurl.git"
   },
   "bugs": {
-    "url": "https://github.com/birdietiger/publicspaces-webexteams/issues"
+    "url": "https://github.com/webex/eurl/issues"
   },
-  "homepage": "https://github.com/birdietiger/publicspaces-webexteams"
+  "homepage": "https://github.com/webex/eurl"
 }
