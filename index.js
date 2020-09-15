@@ -79,14 +79,20 @@ if (!process.env.DESCRIPTION)
 else
 	description = process.env.DESCRIPTION;
 
+console.log('heyo')
 var supportEmail = '';
 var supportUrl = '';
 if (!process.env.SUPPORT_EMAIL){
-	if (!process.env.SUPPORT_URL)
+	if (!process.env.SUPPORT_URL){
 		console.log('Warn: You should have a support email or url set in environment as "SUPPORT_URL" so users can contact you.');
-	else
+	}else{
+		console.log('setting support url');
+		console.log(process.env.SUPPORT_URL);
+		console.log(process.env.SUPPORT_URL == '');
 		supportUrl = process.env.SUPPORT_URL;
+	}
 }else{
+	console.log('setting support email');
 	supportEmail = process.env.SUPPORT_EMAIL;
 }
 
@@ -411,6 +417,8 @@ app.get('/api/spaces', function(req, res){
 
 		// create a temp pwd
 		req.session.tempPwd = ShortId.generate();
+		//console.log('/api/spaces tempPwd created.');
+		//console.log(req.session);
 
 		// let web app know to display verification steps
 		res.json({
@@ -510,6 +518,8 @@ app.get('/api/auth/:email', function(req, res){
 	}
 
 	// error if session doesn't have a temp password set
+	//console.log(req);
+	//console.log(req.session);
 	if (!req.session.tempPwd) {
 		log.error('email auth: no tempPwd set: "'+email+'"');
 		res.status(401).send('Unauthorized');
@@ -1400,18 +1410,12 @@ app.post('/api/webhooks', function(req, res){
 					return;
 
 				}
-
 				// parse the description command they sent
-				var description = "";
-				var descriptionCmd = message.html.match(/description\b\s*(.+)?$/i);
-				if (
-					message.text.match(/description\b\s*$/) === null
-					&& descriptionCmd !== null
-					&& descriptionCmd[1].trim() !== ""
-					)
-					description = descriptionCmd[1].replace(/(^\[|\]$)/g,'').trim();
 
-				// get the space details from the db
+				var description = message.html.split('</spark-mention>')[1]
+				description = description.substring(description.toLowerCase().indexOf('description') + 'description'.length);
+				description = description.replace('</p>','').trim();
+
 				Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
 
 					// couldn't get anything from db
@@ -2780,8 +2784,15 @@ function membershipsCacheJob(job) {
 		}
 
 		// error that we won't try to recover from
-		else
-			log.error('teams api error while doing memberships cache job', err);
+		else {
+			try {
+				log.warn('teams api exception while doing memberships cache job', err.statusCode, err.body);
+			} catch(e){
+				log.error('teams api error while doing memberships cache job', err);
+			}
+		}
+
+
 
 		// job is considered complete
 		completeJob(jobs.cache.memberships, job);

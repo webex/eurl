@@ -39,7 +39,37 @@
 			<div id="emailContainer">
 				<i class="fa fa-times"></i> <span id="email"></span>
 			</div>
-			<div id="support"><i class="fa fa-question-circle"></i> Help</div>
+			<div id="doc"><i class="fa fa-info-circle"></i> Documentation</div>
+			<div id="support"><i class="fa fa-question-circle"></i> Support</div>
+		</div>
+	</div>
+</div>
+
+<div id="doc-info" class="documentation">
+	<div class="information">
+		<div id="close-info"><i class="fa fa-times-circle"></i></div>
+		<div id="info-content">
+			<p><b>Eurl</b> is used to create spaces that users can search for and join.
+				<br>You can add <i>eurl@webex.bot</i> to a group space in Webex Teams.<br>
+				Then, <b>@mention</b> the bot in the group space in Webex Teams with one of the following commands:
+			</p>
+			<p class="eurl-commands"><strong><code>url</code></strong> - Get details on how someone can join the space<br>
+				<strong><code>qr</code></strong> - Get QR code to join the space<br>
+				<strong><code>list</code></strong> - Anyone can see the space listed at https://eurl.io/<br>
+				<strong><code>list off</code></strong> - Remove the space from public listing at https://eurl.io/<br>
+				<strong><code>internal [opt. list of domains]</code></strong> - Only users from specific domains can join the space<br>
+				<strong><code>internal off</code></strong> - Anyone can join the space<br>
+				<strong><code>logo [opt. url]</code></strong> - See or set custom logo (transparent png, 50px width recommended) <br>
+				<strong><code>logo off</code></strong> - Remove custom logo<br>
+				<strong><code>description [opt. text or markdown]</code></strong> - See or set description<br>
+				<strong><code>description off</code></strong> - Remove description<br>
+				<strong><code>url new</code></strong> - Create a new url to join the space<br>
+				<strong><code>source</code></strong> - Get the link to the source code for this bot<br>
+				<strong><code>support</code></strong> - Join the support space for this bot<br>
+				<strong><code>help</code></strong> - List commands<br>
+			</p>
+			<p>&#8226; You can also send a <b>direct</b> message to <i>eurl@webex.bot</i> in Webex Teams to search public and internal spaces, e.g. send the word 'test' and Eurl will return a list of all spaces with the word 'test' in the space title.<br></p>
+			<p>&#8226; If Eurl is set to have its list enabled in a Webex Teams group space, then it will appear here on https://eurl.io for users to search for and join! Whether the <i>internal</i> setting is used will determine which users will be able to see the space as joinable.
 		</div>
 	</div>
 </div>

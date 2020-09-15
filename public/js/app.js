@@ -537,8 +537,26 @@ function setLogo(logoUrl, logoTitle, rounded) {
 	$('<style>.site-wrapper:before{background-image:url('+logoUrl+')}</style>').appendTo('head');
 }
 
+function documentationPopup(){
+  $("#doc").on('click', function(){
+    $("#doc-info").show();
+  });
+
+  $("#close-info").on('click', function(){
+    $("#doc-info").hide();
+  });
+
+  $("#doc-info").on('click', function(e){
+    if(e.target.id=="doc-info"){
+      $("#doc-info").hide();
+    }
+  });
+
+}
+
 function setup() {
 	document.title = botName+' | Join Webex Teams Spaces';
+  documentationPopup();
 	if (supportEmail != '' || supportUrl != '') {
 		$('#support').show();
 		var supportSubject = 'Question about joining Webex Teams Space via '+botName+' ('+botEmail+')';
