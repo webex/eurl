@@ -4,7 +4,7 @@ Installation
 ------------
 
 ``` bash
-$ git clone https://github.com/birdietiger/publicspaces-webexteams.git
+$ git clone https://github.com/webex/eurl.git
 $ npm install
 ```
 
