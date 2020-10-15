@@ -126,6 +126,7 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const ShortId = require('shortid');
 const validator = require('validator');
+const he = require('he');
 const crypto = require('crypto');
 const webexteams = require('ciscospark/env');
 const qr = require('qr-image');
@@ -326,6 +327,7 @@ app.get('/', function(req, res){
 	res.sendFile(path.join(__dirname, 'views/index.html'));
 });
 
+// endpoint to check if bot is alive
 app.get('/alive', function(req, res){
 	res.status(200).send('OK');
 });
@@ -479,7 +481,7 @@ app.get('/api/spaces', function(req, res){
 					created: publicspace.created,
 					updated: publicspace.updated,
 					internal: publicspace.internal,
-					title: publicspace.title,
+					title: he.encode(publicspace.title),
 					hits: publicspace.hits
 				};
 
@@ -650,7 +652,7 @@ app.get('/api/shortid/:shortId', function(req, res){
 			.then(function(space) {
 
 				// found space
-				res.json({ responseCode: 0, title: space.title, logoUrl: publicspace.logoUrl, description: publicspace.description });
+				res.json({ responseCode: 0, title: he.encode(space.title), logoUrl: publicspace.logoUrl, description: he.encode(publicspace.description) });
 
 				// update db with any differences in space details
 				if (
@@ -1699,7 +1701,7 @@ app.post('/api/webhooks', function(req, res){
 					) {
 
 					// they provided a url
-					if (logoCmd[1].trim().match(/^http[s]?:\/\//i))
+					if (validator.isURL(logoCmd[1].trim(), { protocols: ['http','https'] }))
 						logoUrl = logoCmd[1].replace(/(^\[|\]$)/g,'').trim();
 
 					// tell the user they didn't give a url
@@ -2467,7 +2469,7 @@ function sendHelpGroup(publicspace) {
 		internalMarkdown+
 		"**`logo [opt. url]`** - See or set custom logo (transparent png, 50px width recommended) <br>\n"+
 		"**`logo off`** - Remove custom logo<br>\n"+
-		"**`description [opt. text or markdown]`** - See or set description<br>\n"+
+		"**`description [opt. text - no markdown support]`** - See or set description<br>\n"+
 		"**`description off`** - Remove description<br>\n"+
 		"**`url new`** - Create a new url to join this space<br>\n"+
 		urlPreviousMarkdown+
