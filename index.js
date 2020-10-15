@@ -1170,14 +1170,15 @@ app.post('/api/webhooks', function(req, res){
 							// create arrays of what was found for spaces they're in and not in
 							var toJoin = [];
 							var joined = [];
+							var encodedTitle = he.encode(publicspace.title);
 							publicspaces.forEach(function(publicspace){
 								if (
 									cache.memberships[message.personEmail.toLowerCase()]
 									&& cache.memberships[message.personEmail.toLowerCase()].includes(publicspace.shortId)
 									)
-									joined.push("> ["+publicspace.title+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")  \n");
+									joined.push("> ["+encodedTitle+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")  \n");
 								else
-									toJoin.push("> ["+publicspace.title+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")  \n");
+									toJoin.push("> ["+encodedTitle+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")  \n");
 							});
 
 							// create output based on what was found
