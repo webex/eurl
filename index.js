@@ -61,7 +61,7 @@ if (!process.env.WEBEXTEAMS_ADMIN_SPACE_ID)
 if (!process.env.WEBEXTEAMS_SUPPORT_SPACE_ID)
 	console.log('Warn: Specify a Webex Teams Room/Space ID in environment as "WEBEXTEAMS_SUPPORT_SPACE_ID" to allow users to join the support space in Webex Teams.');
 
-var sourceUrl = 'https://github.com/birdietiger/publicspaces-webexteams';
+var sourceUrl = 'https://github.com/webex/eurl';
 if (!process.env.SOURCE_URL)
 	console.log('Warn: You can set a source code url in environment as "SOURCE_URL". Using default source code url of '+sourceUrl);
 else
