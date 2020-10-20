@@ -43,6 +43,9 @@ CISCOSPARK_ACCESS_TOKEN="<provided by https://developer.webex.com/>"
 #Cisco Webex Teams Webhook secret to verify authenticity of data [optional]
 #WEBEXTEAMS_WEBHOOK_SECRET=
 
+#Use Websockets to receive events instead of Webhooks [optional; default = false]
+#WEBHOOKS="true"
+
 #Messages to send to Cisco Webex Teams to avoid hit ratelimiting [optional; default = 4]
 #Note: Currently only used during startup to build membership cache
 #WEBEXTEAMS_MESSAGES_PER_SECOND=4
@@ -62,12 +65,18 @@ CISCOSPARK_ACCESS_TOKEN="<provided by https://developer.webex.com/>"
 #Allows users of website to request support via email [optional]
 #SUPPORT_EMAIL=
 
+#Allows users of website to get support via url. Supersedes SUPPORT_EMAIL [optional]
+#SUPPORT_URL=
+
 #Where to store logs in machine-readable format [optional]
 #LOG_FILE=
 
 #Set log level [optional; default = info]
 #"error", "warn", "info", "verbose", "debug", or "silly"
 #LOG_LEVEL="debug"
+
+#Control whether cookie can be sent over non-https connections. Not recommended for production [optional; default = true]
+#SECURE_COOKIE="false"
 ```
 
 Cisco Webex Teams Webhooks

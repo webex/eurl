@@ -1,8 +1,3 @@
-// TODO
-// 429 handling throughout
-// processing time per response in logs
-// add integration (oauth) support to have user login
-
 // setup env var
 const fs = require('fs');
 const envFile = __dirname + '/.env';
@@ -31,19 +26,6 @@ if (!process.env.CISCOSPARK_ACCESS_TOKEN) {
 	process.exit(1);
 }
 
-// TODO isn't used for anything yet
-/*
-var webAuth = "oauth";
-if (
-	!process.env.WEBEXTEAMS_CLIENT_ID
-	|| !process.env.WEBEXTEAMS_CLIENT_SECRET
-	|| !process.env.WEBEXTEAMS_OAUTH_URL
-	) {
-	console.log('Warn: Specify "WEBEXTEAMS_CLIENT_ID", "WEBEXTEAMS_CLIENT_SECRET", and "WEBEXTEAMS_OAUTH_URL" in environment if you want use Webex Teams authentication.');
-	webAuth = "url";
-}
-*/
-
 if (
 	!process.env.REVERSE_PROXY
 	|| process.env.REVERSE_PROXY.toLowerCase() != 'true'
@@ -52,7 +34,28 @@ if (
 else
 	console.log('Warn: Make sure that your reverse proxy is set to rewrite the cookie path correctly.');
 
-if (!process.env.WEBEXTEAMS_WEBHOOK_SECRET)
+var secureCookie = true;
+if (
+	process.env.SECURE_COOKIE
+	&& process.env.SECURE_COOKIE.toLowerCase() == 'false'
+	) {
+	console.log('Warn: Allowing session cookies to be sent over non-https connections. This is dangerous. Not recommended for production deployments. Set "SECURE_COOKIE=true" in environment to revert.');
+	secureCookie = false;
+}
+
+var websocket = false;
+if (
+	process.env.WEBSOCKET
+	&& process.env.WEBSOCKET.toLowerCase() == 'true'
+	) {
+	websocket = true;
+	console.log('Warn: Using websockets to receive events. Make sure you are not also receiving webhook events or the bot will process each event twice.');
+}
+
+if (
+	!websocket
+	&& !process.env.WEBEXTEAMS_WEBHOOK_SECRET
+	)
 	console.log('Warn: You really should be using a webhook secret. Specify a Webex Teams webhook secret in environment as "WEBEXTEAMS_WEBHOOK_SECRET".');
 
 if (!process.env.WEBEXTEAMS_ADMIN_SPACE_ID)
@@ -61,11 +64,11 @@ if (!process.env.WEBEXTEAMS_ADMIN_SPACE_ID)
 if (!process.env.WEBEXTEAMS_SUPPORT_SPACE_ID)
 	console.log('Warn: Specify a Webex Teams Room/Space ID in environment as "WEBEXTEAMS_SUPPORT_SPACE_ID" to allow users to join the support space in Webex Teams.');
 
-var sourceUrl = 'https://github.com/birdietiger/publicspaces-webexteams';
+var sourceUrl = '';
 if (!process.env.SOURCE_URL)
-	console.log('Warn: You can set a source code url in environment as "SOURCE_URL". Using default source code url of '+sourceUrl);
+	console.log('Warn: You can set a source code url in environment as "SOURCE_URL" so users can find the source for the bot.');
 else
-	sourceUrl = process.env.SUPPORT_EMAIL;
+	sourceUrl = process.env.SOURCE_URL;
 
 var permitDomains = [];
 if (!process.env.PERMIT_DOMAINS)
@@ -79,21 +82,22 @@ if (!process.env.DESCRIPTION)
 else
 	description = process.env.DESCRIPTION;
 
-console.log('heyo')
 var supportEmail = '';
 var supportUrl = '';
-if (!process.env.SUPPORT_EMAIL){
-	if (!process.env.SUPPORT_URL){
-		console.log('Warn: You should have a support email or url set in environment as "SUPPORT_URL" so users can contact you.');
-	}else{
-		console.log('setting support url');
-		console.log(process.env.SUPPORT_URL);
-		console.log(process.env.SUPPORT_URL == '');
-		supportUrl = process.env.SUPPORT_URL;
+if (
+	!process.env.SUPPORT_EMAIL
+	&& !process.env.SUPPORT_URL
+	)
+	console.log('Warn: You should have a support email or url set in environment as  "SUPPORT_EMAIL" or "SUPPORT_URL" so users can contact you.');
+else {
+	if (process.env.SUPPORT_URL) {
+		console.log('Info: setting support URL to'+process.env.SUPPORT_URL);
+		supportEmail = process.env.SUPPORT_URL;
 	}
-}else{
-	console.log('setting support email');
-	supportEmail = process.env.SUPPORT_EMAIL;
+	if (process.env.SUPPORT_EMAIL) {
+		console.log('Info: setting support email to'+process.env.SUPPORT_EMAIL);
+		supportEmail = process.env.SUPPORT_EMAIL;
+	}
 }
 
 if (!process.env.ADMIN_PORT)
@@ -122,18 +126,31 @@ const assert = require('assert');
 const winston = require('winston');
 const expressWinston = require('express-winston');
 const https = require('https');
+const http = require('http');
 const bodyParser = require('body-parser');
 const path = require('path');
 const ShortId = require('shortid');
 const validator = require('validator');
 const he = require('he');
 const crypto = require('crypto');
-const webexteams = require('ciscospark/env');
 const qr = require('qr-image');
-const mongoose = require('mongoose').connect(process.env.MONGO_URI);
+const mongoose = require('mongoose').connect(
+		process.env.MONGO_URI,
+		{
+			useNewUrlParser: true,
+			useUnifiedTopology: true,
+			useFindAndModify: false
+		}
+	);
 const express = require('express');
 const session = require('express-session');
 const mongoDBStore = require('connect-mongodb-session')(session);
+const Webex = require('webex');
+let webexteams = Webex.init({
+	credentials: {
+			access_token: process.env.CISCOSPARK_ACCESS_TOKEN
+	}
+});
 
 // setup logging
 var logTransports = [];
@@ -248,7 +265,7 @@ const sessionMiddleware = session({
 	saveUninitialized: true,
 	name: cookieSidName,
 	cookie: {
-		secure: true,
+		secure: secureCookie,
 		httpOnly: false,
 		maxAge: 1000 * 60 * 60 * 1 // 1 hour
 	}
@@ -520,8 +537,6 @@ app.get('/api/auth/:email', function(req, res){
 	}
 
 	// error if session doesn't have a temp password set
-	//console.log(req);
-	//console.log(req.session);
 	if (!req.session.tempPwd) {
 		log.error('email auth: no tempPwd set: "'+email+'"');
 		res.status(401).send('Unauthorized');
@@ -652,7 +667,10 @@ app.get('/api/shortid/:shortId', function(req, res){
 			.then(function(space) {
 
 				// found space
-				res.json({ responseCode: 0, title: he.encode(space.title), logoUrl: publicspace.logoUrl, description: he.encode(publicspace.description) });
+				var description = '';
+				if (publicspace.description)
+					description = publicspace.description
+				res.json({ responseCode: 0, title: he.encode(space.title), logoUrl: publicspace.logoUrl, description: he.encode(description) });
 
 				// update db with any differences in space details
 				if (
@@ -953,8 +971,11 @@ app.post('/api/webhooks', textParser, function(req, res, next){
 		return;
 	}
 
-	// validate webhook hasn't been modified or faked
-	if (process.env.WEBEXTEAMS_WEBHOOK_SECRET) {
+	// if not using websocket, validate webhook hasn't been modified or faked
+	if (
+		!websocket
+		&& process.env.WEBEXTEAMS_WEBHOOK_SECRET
+		) {
 		var hash = crypto.createHmac('sha1', process.env.WEBEXTEAMS_WEBHOOK_SECRET).update(req.body).digest('hex');
 		var teamsHash = req.get('X-Spark-Signature');
 		if (hash !== teamsHash) {
@@ -1959,8 +1980,11 @@ app.post('/api/webhooks', function(req, res){
 
 			}
 
-			// send source link
-			else if (commandMatch('source\\b', message.text)) {
+			// if source url is set, send source link
+			else if (
+				commandMatch('source\\b', message.text)
+				&& sourceUrl != ''
+				) {
 				sendResponse(message.roomId, "You can find the source code for me at " + sourceUrl);
 			}
 
@@ -2451,7 +2475,7 @@ function sendHelpDirect() {
 
 // global function to send help
 function sendHelpGroup(publicspace) {
-	var supportMarkdown = '', internalMarkdown = '', descriptionMarkdown = '', urlPreviousMarkdown = '';
+	var supportMarkdown = '', internalMarkdown = '', descriptionMarkdown = '', urlPreviousMarkdown = '', sourceUrlMarkdown = '';
 	if (process.env.WEBEXTEAMS_SUPPORT_SPACE_ID)
 		supportMarkdown = "**`support`** - Join the support space for this bot<br>\n";
 	if (!process.env.PERMIT_DOMAINS)
@@ -2460,6 +2484,8 @@ function sendHelpGroup(publicspace) {
 		descriptionMarkdown = description + "\n\n";
 	if (publicspace.shortId != publicspace.previousShortId)
 		urlPreviousMarkdown = "**`url previous`** - Revert to the previous url to join this space<br>\n";
+	if (process.env.SOURCE_URL)
+		sourceUrlMarkdown = "**`source`** - Get the link to the source code for this bot<br>\n";
 	var markdown =
 		descriptionMarkdown+
 		"@mention me with one of the following commands<br>\n\n"+
@@ -2474,7 +2500,7 @@ function sendHelpGroup(publicspace) {
 		"**`description off`** - Remove description<br>\n"+
 		"**`url new`** - Create a new url to join this space<br>\n"+
 		urlPreviousMarkdown+
-		"**`source`** - Get the link to the source code for this bot<br>\n"+
+		sourceUrlMarkdown+
 		supportMarkdown+
 		"**`help`** - List commands<br>\n"+
 		"\nYou can message me directly to search public and internal spaces.<br>\n\n";
@@ -2891,46 +2917,89 @@ var commandMatch = function(commandRegExp, messageText) {
 		return false;
 }
 
-// initialize
-var botDetails = {};
-var init = function() {
+// forward websocket events to express
+function forwardRequest(request) {
 
-	// search db for all spaces
-	Publicspace.find({ 'active': true }, function (err, publicspaces){
+    //gathering some details
+    const options = {
+        hostname: 'localhost',
+				path: '/api/webhooks',
+        port: app.get('port'),
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': request.length
+        }
+    };
 
-		// something failed
-		if (err) {
-			handleErr(err);
+    //creating the forward request
+    const req = http.request(options, res => {
+      // successfully forwarded request
+    });
 
-		// no spaces that have been enabled for listing
-		} else if (!publicspaces) {
-			handleErr("No spaces in db");
+    req.on('error', err => {
+			// failed to forward request
+      log.error(`Couldn't forward request: ${err.message}`);
+    });
 
-		// things look good
-		} else {
+    //sending the request
+    req.write(request);
+    req.end();
 
-			// add membership cache jobs to queue
-			publicspaces.forEach(function(publicspace){
-				addJob(jobs.cache.memberships, {
-					spaceId: publicspace.spaceId,
-					shortId: publicspace.shortId,
-					type: "space"
+}
+
+// websocket listeners
+function createListeners() {
+
+	let resources = {
+		messages: ['created'],
+		rooms: ['updated'],
+		memberships: ['created','updated','deleted']
+	}
+
+	// cycle through all resource types needed
+	for (let resource of Object.keys(resources)) {
+
+		// create listeners
+		webexteams[resource].listen().then(() => {
+
+			log.info(`Listening for ${resource} events`);
+
+			for (let eventType of resources[resource]) {
+
+				webexteams[resource].on(eventType, function(req){
+						let requestString = JSON.stringify(req);
+						log.info('Received websocket event');
+						log.debug('Websocket event: '+requestString);
+						forwardRequest(requestString);
 				});
-			});
-			// start to process membership cache jobs
-			processJobs(jobs.cache.memberships);
-		}
 
-	});
+				log.info(`Triggering on ${resource}:${eventType} events`)
 
-	// get bot details
-	getBotDetails();
+			}
 
-	// check every hour to see if bot details have changed
-	setInterval(function(){
-		getBotDetails();
-	}, 1000 * 60 * 60);
-  console.log('end of init')
+		})
+
+		.catch(err => {
+				log.error("Failed to start listener for "+resource+": "+err);
+		});
+
+	}
+
+	// clean up listeners on exit
+	// not clear this is needed and masks some errors, so commenting out for now
+	/* [`exit`, `SIGINT`, `SIGUSR1`, `SIGUSR2`, `uncaughtException`, `SIGTERM`].forEach((exitType) => {
+		process.on(exitType,function(){
+			log.info('cleaning up websocket listeners')
+			for (let resource of Object.keys(resources)) {
+				webexteams[resource].stopListening();
+				for (let eventType of resources[resource])
+					webexteams[resource].off(eventType);
+			}
+			process.exit()
+		});
+	}); */
+
 }
 
 // global function to get bot details from teams
@@ -2978,6 +3047,52 @@ var getBotDetails = function() {
 
 	// end the request
 	req.end();
+
+}
+
+// initialize
+var botDetails = {};
+var init = function() {
+
+	// if websockets enabled, start listeners
+	if (websocket)
+		createListeners();
+
+	// search db for all spaces
+	Publicspace.find({ 'active': true }, function (err, publicspaces){
+
+		// something failed
+		if (err) {
+			handleErr(err);
+
+		// no spaces that have been enabled for listing
+		} else if (!publicspaces) {
+			handleErr("No spaces in db");
+
+		// things look good
+		} else {
+
+			// add membership cache jobs to queue
+			publicspaces.forEach(function(publicspace){
+				addJob(jobs.cache.memberships, {
+					spaceId: publicspace.spaceId,
+					shortId: publicspace.shortId,
+					type: "space"
+				});
+			});
+			// start to process membership cache jobs
+			processJobs(jobs.cache.memberships);
+		}
+
+	});
+
+	// get bot details
+	getBotDetails();
+
+	// check every hour to see if bot details have changed
+	setInterval(function(){
+		getBotDetails();
+	}, 1000 * 60 * 60);
 
 }
 
