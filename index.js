@@ -436,8 +436,6 @@ app.get('/api/spaces', function(req, res){
 
 		// create a temp pwd
 		req.session.tempPwd = ShortId.generate();
-		//console.log('/api/spaces tempPwd created.');
-		//console.log(req.session);
 
 		// let web app know to display verification steps
 		res.json({
@@ -670,7 +668,7 @@ app.get('/api/shortid/:shortId', function(req, res){
 				var description = '';
 				if (publicspace.description)
 					description = publicspace.description
-				res.json({ responseCode: 0, title: he.encode(space.title), logoUrl: publicspace.logoUrl, description: he.encode(description) });
+				res.json({ responseCode: 0, title: he.encode(space.title), logoUrl: publicspace.logoUrl, description: description });
 
 				// update db with any differences in space details
 				if (
@@ -1102,45 +1100,36 @@ app.post('/api/webhooks', textParser, function(req, res, next){
 // since webhook was validated, we can now process it
 app.post('/api/webhooks', function(req, res){
 
-/*
-	// create objext from body of webhook
-	req.body = JSON.parse(req.body);
-	log.debug('webhook body: ', req.body);
-*/
-
 	// if the event is a message to the bot and not created by the bot
 	if (
 		req.body.resource == 'messages'
 		&& req.body.event == 'created'
 		&& req.body.data.personId != botDetails.id
 		) {
-		console.log(req.body);
+
 		// var to contain the response message
 		var response;
 
 		// get domain for message sender
 		var personDomain = getEmailDomain(req.body.data.personEmail);
 
-		/*
-		// get the details of the message
-		webexteams.messages.get(req.body.data.id)
-		.then(function(message){
-		*/
-
 		var message = req.body.message;
 
 			// doing search
 			if (message.roomType == 'direct') {
 
-				var sentHelp = false;
+				// create placeholder for response markdown
 				let response = "";
-				if (message.text.match(/^\s*help\s*$/i)) {
-					response += sendHelpDirect();
-					sentHelp = true;
-				}
 
 				// get query text
 				var query = message.text;
+
+				// check if user is asking for help
+				let provideListUrl = "";
+				if (query.match(/^\s*help\s*$/i)) {
+					sendHelpDirect();
+					provideListUrl = "\n\nYou can also visit "+process.env.BASE_URL+" for a full list of joinable spaces.\n";
+				}
 
 				// search db for query from active entries that are publicly listed or internal and in users domain
 				Publicspace.find({
@@ -1166,14 +1155,6 @@ app.post('/api/webhooks', function(req, res){
 					// find worked
 					else {
 
-						// no spaces found and senthelp
-						/*
-						if (
-							publicspaces.length === 0
-							&& sentHelp
-							)
-							return;
-						*/
 						// no spaces found
 						if (publicspaces.length === 0)
 							response += "I couldn't find any spaces matching the term **"+query+"**.  \n";
@@ -1183,9 +1164,8 @@ app.post('/api/webhooks', function(req, res){
 
 							// tell user what was found using what query
 							let s = "s";
-							if(publicspaces.length == 1){
+							if(publicspaces.length == 1)
 								s = "";
-							}
 							response += "I found **"+publicspaces.length+"** space"+s+" with the term **"+query+"**.  \n";
 
 							// create arrays of what was found for spaces they're in and not in
@@ -1212,10 +1192,10 @@ app.post('/api/webhooks', function(req, res){
 
 						}
 
+						// append list url markdown
+						response += provideListUrl;
+
 						// respond
-						if(sentHelp){
-							response += "\n\nYou can also visit https://eurl.io/ for a full list of joinable spaces.  \n"
-						}
 						sendResponse(message.roomId, response);
 
 					}
@@ -2463,14 +2443,12 @@ function sendPermissionDenied(spaceId) {
 }
 
 // global function to send direct help
-function sendHelpDirect() {
+function sendHelpDirect(spaceId) {
 	let markdown = "I can add users to group spaces. Add me to a group space so I can help people join it.  \n";
 	markdown += "* Sending the **help** command to me in a group space will show the full list of commands available for group spaces.\n\n";
 	markdown += "My functionality in direct spaces is different. In this direct space, you can type a word or phrase and I'll search for available public and internal spaces that match your search term. "
 	markdown += "For example, searching your available spaces for the word **help**:\n\n"
-	//let markdown = "I'll use messages you send in this space to search for public and internal spaces you can join. Add me to a group space so I can help people join there";
-	//sendResponse(spaceId, markdown);
-	return markdown;
+	sendResponse(spaceId, markdown);
 }
 
 // global function to send help
