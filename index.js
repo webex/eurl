@@ -303,7 +303,7 @@ if (process.env.ADMIN_PORT) {
 		res.status(200).send(JSON.stringify(cache[req.params.type][req.params.key]));
 	});
 
-	// endpoint to check cache size from localhost only
+	// endpoint to check cache size
 	adminApp.get('/api/cache/count', function(req, res){
 
 		var response = {
@@ -1004,6 +1004,10 @@ app.post('/api/webhooks', textParser, function(req, res, next){
 			return;
 		}
 
+		// continue to next matching route
+		next();
+		return;
+
 	}
 
 	// if the event is a message to the bot and not created by the bot, get details
@@ -1060,6 +1064,7 @@ app.post('/api/webhooks', textParser, function(req, res, next){
 
 						// continue to next matching route
 						next();
+						return;
 
 					}
 
@@ -1100,6 +1105,8 @@ app.post('/api/webhooks', textParser, function(req, res, next){
 // since webhook was validated, we can now process it
 app.post('/api/webhooks', function(req, res){
 
+	log.info("processing validated webhook")
+
 	// if the event is a message to the bot and not created by the bot
 	if (
 		req.body.resource == 'messages'
@@ -1113,993 +1120,985 @@ app.post('/api/webhooks', function(req, res){
 		// get domain for message sender
 		var personDomain = getEmailDomain(req.body.data.personEmail);
 
+		// get message added to req in earlier express webhook route
 		var message = req.body.message;
 
-			// doing search
-			if (message.roomType == 'direct') {
+		// doing search in 1-1 space
+		if (message.roomType == 'direct') {
 
-				// create placeholder for response markdown
-				let response = "";
+			// create placeholder for response markdown
+			let response = "";
 
-				// get query text
-				var query = message.text;
+			// get query text
+			var query = message.text;
 
-				// check if user is asking for help
-				let provideListUrl = "";
-				if (query.match(/^\s*help\s*$/i)) {
-					sendHelpDirect();
-					provideListUrl = "\n\nYou can also visit "+process.env.BASE_URL+" for a full list of joinable spaces.\n";
-				}
+			// check if user is asking for help
+			let provideListUrl = "";
+			if (query.match(/^\s*help\s*$/i)) {
+				sendHelpDirect(message.roomId);
+				provideListUrl = "\n\nYou can also visit "+process.env.BASE_URL+" for a full list of joinable spaces.\n";
+			}
 
-				// search db for query from active entries that are publicly listed or internal and in users domain
-				Publicspace.find({
-					"title": { "$regex": query, "$options": "i" },
-					"active": true,
-					"list": true,
-					$or: [
-						{ "internal": false },
-						{
-							$and: [
-								{ "internal": true },
-								{ "internalDomains": personDomain }
-							]
-						}
-					],
-				},
-				function (err, publicspaces) {
+			// search db for query from active entries that are publicly listed or internal and in users domain
+			Publicspace.find({
+				"title": { "$regex": query, "$options": "i" },
+				"active": true,
+				"list": true,
+				$or: [
+					{ "internal": false },
+					{
+						$and: [
+							{ "internal": true },
+							{ "internalDomains": personDomain }
+						]
+					}
+				],
+			},
+			function (err, publicspaces) {
 
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
 
-					// find worked
+				// find worked
+				else {
+
+					// no spaces found
+					if (publicspaces.length === 0)
+						response += "I couldn't find any spaces matching the term **"+query+"**.  \n";
+
+					// 1 or more found spaces. build list
 					else {
 
-						// no spaces found
-						if (publicspaces.length === 0)
-							response += "I couldn't find any spaces matching the term **"+query+"**.  \n";
+						// tell user what was found using what query
+						let s = "s";
+						if(publicspaces.length == 1)
+							s = "";
+						response += "I found **"+publicspaces.length+"** space"+s+" with the query **"+query+"**.  \n";
 
-						// 1 or more found spaces. build list
-						else {
-
-							// tell user what was found using what query
-							let s = "s";
-							if(publicspaces.length == 1)
-								s = "";
-							response += "I found **"+publicspaces.length+"** space"+s+" with the term **"+query+"**.  \n";
-
-							// create arrays of what was found for spaces they're in and not in
-							var toJoin = [];
-							var joined = [];
+						// create arrays of what was found for spaces they're in and not in
+						var toJoin = [];
+						var joined = [];
+						publicspaces.forEach(function(publicspace){
 							var encodedTitle = he.encode(publicspace.title);
-							publicspaces.forEach(function(publicspace){
-								if (
-									cache.memberships[message.personEmail.toLowerCase()]
-									&& cache.memberships[message.personEmail.toLowerCase()].includes(publicspace.shortId)
-									)
-									joined.push("> ["+encodedTitle+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")  \n");
-								else
-									toJoin.push("> ["+encodedTitle+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")  \n");
-							});
+							if (
+								cache.memberships[message.personEmail.toLowerCase()]
+								&& cache.memberships[message.personEmail.toLowerCase()].includes(publicspace.shortId)
+								)
+								joined.push("> ["+encodedTitle+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")  \n");
+							else
+								toJoin.push("> ["+encodedTitle+"]("+process.env.BASE_URL+'#'+publicspace.shortId+")  \n");
+						});
 
-							// create output based on what was found
-							if (toJoin.length > 0)
-								response += toJoin.join("");
-							if (toJoin.length > 0 && joined.length > 0)
-								response += "\n\n";
-							if (joined.length > 0)
-								response += "You're already a member of these spaces:  \n" + joined.join("");
+						// create output based on what was found
+						if (toJoin.length > 0)
+							response += toJoin.join("");
+						if (toJoin.length > 0 && joined.length > 0)
+							response += "\n\n";
+						if (joined.length > 0)
+							response += "\n\nYou're already a member of these spaces:  \n" + joined.join("");
 
-						}
+					}
 
-						// append list url markdown
-						response += provideListUrl;
+					// append list url markdown
+					response += provideListUrl;
 
-						// respond
+					// respond
+					sendResponse(message.roomId, response);
+
+				}
+
+			});
+
+		}
+
+		// rest of checks are for group spaces
+
+		// anyone can join space (default)
+		else if (commandMatch('internal\\s+off\\b', message.text)) {
+
+			// check if permitted to issue this command
+			if (
+				req.body.room.isLocked
+				&& !req.body.membership.isModerator
+				) {
+
+				// respond with error and stop processing this command
+				sendPermissionDenied(req.body.room.id);
+				return;
+
+			}
+
+			// get the space details from the db
+			Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
+
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
+
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(req.body.data.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public
+						createPublicSpace(req, space);
+
+					})
+
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
+
+				}
+
+				// found an entry in the db
+				else if (publicspace) {
+
+					// set it so open to people outside org
+					publicspace.internal = false;
+					publicspace.internalDomains = [];
+
+					// update db
+					updatePublicSpace(publicspace);
+
+				}
+
+			});
+
+		}
+
+		// don't show space externally
+		else if (commandMatch('internal\\b', message.text)) {
+
+			var internalDomains = [
+				personDomain
+				];
+
+			// check if permitted to issue this command
+			if (
+				req.body.room.isLocked
+				&& !req.body.membership.isModerator
+				) {
+
+				// respond with error and stop processing this command
+				sendPermissionDenied(req.body.room.id);
+				return;
+
+			}
+
+			// get list of optional domains from command
+			var domains = message.text.match(/internal\b\s*([^\s].*)$/i);
+			if (
+				domains !== null
+				&& domains[1].trim() !== ""
+				)
+				var internalDomains = domains[1].replace(/(^\[|\]$)/g,'').trim().toLowerCase().split(/[,\s]+/);
+
+			// get the space details from the db
+			Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
+
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
+
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(message.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public
+						createPublicSpace(req, space, { internal: true, internalDomains: internalDomains });
+
+					})
+
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
+
+				}
+
+				// found an entry in the db
+				else if (publicspace) {
+
+					// set it so its restricted to internal
+					publicspace.internal = true;
+					publicspace.internalDomains = internalDomains;
+
+					// update db
+					updatePublicSpace(publicspace);
+
+				}
+
+			});
+
+		}
+
+		// disable description for space
+		else if (commandMatch('description\\s+off\\b', message.text)) {
+
+			// check if permitted to issue this command
+			if (
+				req.body.room.isLocked
+				&& !req.body.membership.isModerator
+				) {
+
+				// respond with error and stop processing this command
+				sendPermissionDenied(req.body.room.id);
+				return;
+
+			}
+
+			// get the space details from the db
+			Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
+
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
+
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(message.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public
+						createPublicSpace(req, space);
+
+					})
+
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
+
+				}
+
+				// found an entry in the db
+				else if (publicspace) {
+
+					// set description to nothing
+					publicspace.description = '';
+
+					// update db
+					updatePublicSpace(publicspace, function(){
+
+						// let user know the description has been set to nothing
+						response = "I won't use a description for this space";
 						sendResponse(message.roomId, response);
 
-					}
-
-				});
-
-			}
-
-			// rest of checks are for group spaces
-
-			// anyone can join space (default)
-			else if (commandMatch('internal\\s+off\\b', message.text)) {
-
-				// check if permitted to issue this command
-				if (
-					req.body.room.isLocked
-					&& !req.body.membership.isModerator
-					) {
-
-					// respond with error and stop processing this command
-					sendPermissionDenied(req.body.room.id);
-					return;
+					});
 
 				}
 
-				// get the space details from the db
-				Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
+			});
 
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
+		}
 
-					// not found in db
-					else if (!publicspace) {
+		// set description for space
+		else if (commandMatch('description\\b', message.text)) {
 
-						// get space details
-						webexteams.rooms.get(req.body.data.roomId)
+			// check if permitted to issue this command
+			if (
+				req.body.room.isLocked
+				&& !req.body.membership.isModerator
+				) {
 
-						// found space
-						.then(function(space) {
-
-							// make it public
-							createPublicSpace(req, space);
-
-						})
-
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
-						});
-
-					}
-
-					// found an entry in the db
-					else if (publicspace) {
-
-						// set it so open to people outside org
-						publicspace.internal = false;
-						publicspace.internalDomains = [];
-
-						// update db
-						updatePublicSpace(publicspace);
-
-					}
-
-				});
+				// respond with error and stop processing this command
+				sendPermissionDenied(req.body.room.id);
+				return;
 
 			}
+			// parse the description command they sent
 
-			// don't show space externally
-			else if (commandMatch('internal\\b', message.text)) {
+			var description = message.html.split('</spark-mention>')[1]
+			description = description.substring(description.toLowerCase().indexOf('description') + 'description'.length);
+			description = description.replace('</p>','').trim();
 
-				var internalDomains = [
-					personDomain
-					];
+			Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
 
-				// check if permitted to issue this command
-				if (
-					req.body.room.isLocked
-					&& !req.body.membership.isModerator
-					) {
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
 
-					// respond with error and stop processing this command
-					sendPermissionDenied(req.body.room.id);
-					return;
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(message.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public
+						createPublicSpace(req, space, { description: description });
+
+					})
+
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
 
 				}
 
-				// get list of optional domains from command
-				var domains = message.text.match(/internal\b\s*([^\s].*)$/i);
-				if (
-					domains !== null
-					&& domains[1].trim() !== ""
-					)
-					var internalDomains = domains[1].replace(/(^\[|\]$)/g,'').trim().toLowerCase().split(/[,\s]+/);
+				// found an entry in the db
+				else if (publicspace) {
 
-				// get the space details from the db
-				Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
+					// update the description if provided
+					if (description !== "") {
 
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
-
-					// not found in db
-					else if (!publicspace) {
-
-						// get space details
-						webexteams.rooms.get(message.roomId)
-
-						// found space
-						.then(function(space) {
-
-							// make it public
-							createPublicSpace(req, space, { internal: true, internalDomains: internalDomains });
-
-						})
-
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
-						});
-
-					}
-
-					// found an entry in the db
-					else if (publicspace) {
-
-						// set it so its restricted to internal
-						publicspace.internal = true;
-						publicspace.internalDomains = internalDomains;
-
-						// update db
-						updatePublicSpace(publicspace);
-
-					}
-
-				});
-
-			}
-
-			// disable description for space
-			else if (commandMatch('description\\s+off\\b', message.text)) {
-
-				// check if permitted to issue this command
-				if (
-					req.body.room.isLocked
-					&& !req.body.membership.isModerator
-					) {
-
-					// respond with error and stop processing this command
-					sendPermissionDenied(req.body.room.id);
-					return;
-
-				}
-
-				// get the space details from the db
-				Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
-
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
-
-					// not found in db
-					else if (!publicspace) {
-
-						// get space details
-						webexteams.rooms.get(message.roomId)
-
-						// found space
-						.then(function(space) {
-
-							// make it public
-							createPublicSpace(req, space);
-
-						})
-
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
-						});
-
-					}
-
-					// found an entry in the db
-					else if (publicspace) {
-
-						// set description to nothing
-						publicspace.description = '';
+						// set description
+						publicspace.description = description;
 
 						// update db
 						updatePublicSpace(publicspace, function(){
 
-							// let user know the description has been set to nothing
-							response = "I won't use a description for this space";
+							// let user know the description has been set
+							response = "I'll use that description for this space. Make sure it looks ok at ["+process.env.BASE_URL+"#"+publicspace.shortId+"]("+process.env.BASE_URL+"#"+publicspace.shortId+")";
 							sendResponse(message.roomId, response);
 
 						});
 
 					}
 
-				});
-
-			}
-
-			// set description for space
-			else if (commandMatch('description\\b', message.text)) {
-
-				// check if permitted to issue this command
-				if (
-					req.body.room.isLocked
-					&& !req.body.membership.isModerator
-					) {
-
-					// respond with error and stop processing this command
-					sendPermissionDenied(req.body.room.id);
-					return;
-
-				}
-				// parse the description command they sent
-
-				var description = message.html.split('</spark-mention>')[1]
-				description = description.substring(description.toLowerCase().indexOf('description') + 'description'.length);
-				description = description.replace('</p>','').trim();
-
-				Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
-
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
-
-					// not found in db
-					else if (!publicspace) {
-
-						// get space details
-						webexteams.rooms.get(message.roomId)
-
-						// found space
-						.then(function(space) {
-
-							// make it public
-							createPublicSpace(req, space, { description: description });
-
-						})
-
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
-						});
-
-					}
-
-					// found an entry in the db
-					else if (publicspace) {
-
-						// update the description if provided
-						if (description !== "") {
-
-							// set description
-							publicspace.description = description;
-
-							// update db
-							updatePublicSpace(publicspace, function(){
-
-								// let user know the description has been set
-								response = "I'll use that description for this space. Make sure it looks ok at ["+process.env.BASE_URL+"#"+publicspace.shortId+"]("+process.env.BASE_URL+"#"+publicspace.shortId+")";
-								sendResponse(message.roomId, response);
-
-							});
-
-						}
-
-						// checking description setting
-						else {
-
-							// let user know what the description is set to
-							if (publicspace.description)
-								response = "I'm using this description for this space: "+publicspace.description;
-							else
-								response = "I'm not using a description for this space";
-							sendResponse(message.roomId, response);
-
-						}
-
-					}
-
-				});
-
-			}
-
-			// revert to previous shortId for this space
-			else if (commandMatch('url\\s+previous\\b', message.text)) {
-
-				// check if permitted to issue this command
-				if (
-					req.body.room.isLocked
-					&& !req.body.membership.isModerator
-					) {
-
-					// respond with error and stop processing this command
-					sendPermissionDenied(req.body.room.id);
-					return;
-
-				}
-
-				// get the space details from the db
-				Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
-
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
-
-					// not found in db
-					else if (!publicspace) {
-
-						// get space details
-						webexteams.rooms.get(message.roomId)
-
-						// found space
-						.then(function(space) {
-
-							// make it public
-							createPublicSpace(req, space);
-
-						})
-
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
-						});
-
-					}
-
-					// found an entry in the db
-					else if (publicspace) {
-
-						// save current url and revert to previous shortid
-						var previousShortId = publicspace.shortId;
-						publicspace.shortId = publicspace.previousShortId;
-						publicspace.previousShortId = previousShortId;
-
-						// update db
-						updatePublicSpace(publicspace, function(){
-
-							// share the new join details
-							sendJoinDetails(publicspace);
-
-						});
-
-					}
-
-				});
-
-			}
-
-			// regenerate a new shortid for this space
-			else if (commandMatch('url\\s+new\\b', message.text)) {
-
-				// check if permitted to issue this command
-				if (
-					req.body.room.isLocked
-					&& !req.body.membership.isModerator
-					) {
-
-					// respond with error and stop processing this command
-					sendPermissionDenied(req.body.room.id);
-					return;
-
-				}
-
-				// get the space details from the db
-				Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
-
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
-
-					// not found in db
-					else if (!publicspace) {
-
-						// get space details
-						webexteams.rooms.get(message.roomId)
-
-						// found space
-						.then(function(space) {
-
-							// make it public
-							createPublicSpace(req, space);
-
-						})
-
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
-						});
-
-					}
-
-					// found an entry in the db
-					else if (publicspace) {
-
-						// save current shortId and set new shortid
-						publicspace.previousShortId = publicspace.shortId;
-						publicspace.shortId = ShortId.generate();
-
-						// update db
-						updatePublicSpace(publicspace, function(){
-
-							// share the new join details
-							sendJoinDetails(publicspace);
-
-						});
-
-					}
-
-				});
-
-			}
-
-			// disable logo for space
-			else if (commandMatch('logo\\s+off\\b', message.text)) {
-
-				// check if permitted to issue this command
-				if (
-					req.body.room.isLocked
-					&& !req.body.membership.isModerator
-					) {
-
-					// respond with error and stop processing this command
-					sendPermissionDenied(req.body.room.id);
-					return;
-
-				}
-
-				// get the space details from the db
-				Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
-
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
-
-					// not found in db
-					else if (!publicspace) {
-
-						// get space details
-						webexteams.rooms.get(message.roomId)
-
-						// found space
-						.then(function(space) {
-
-							// make it public
-							createPublicSpace(req, space);
-
-						})
-
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
-						});
-
-					}
-
-					// found an entry in the db
-					else if (publicspace) {
-
-						// set logo to nothing
-						publicspace.logoUrl = '';
-
-						// update db
-						updatePublicSpace(publicspace, function(){
-
-							// let user know the logo has been set to nothing
-							response = "I'll use my avatar for this space";
-							sendResponse(message.roomId, response);
-
-						});
-
-					}
-
-				});
-
-			}
-
-			// set logo for space
-			else if (commandMatch('logo\\b', message.text)) {
-
-				// check if permitted to issue this command
-				if (
-					req.body.room.isLocked
-					&& !req.body.membership.isModerator
-					) {
-
-					// respond with error and stop processing this command
-					sendPermissionDenied(req.body.room.id);
-					return;
-
-				}
-
-				// parse the logo command they sent
-				var logoUrl = "";
-				var logoCmd = message.text.match(/logo\b\s*([^\b]+)?$/i);
-				if (
-					message.text.match(/logo\b\s*$/) === null
-					&& logoCmd !== null
-					&& logoCmd[1].trim() !== ""
-					) {
-
-					// they provided a url
-					if (validator.isURL(logoCmd[1].trim(), { protocols: ['http','https'] }))
-						logoUrl = logoCmd[1].replace(/(^\[|\]$)/g,'').trim();
-
-					// tell the user they didn't give a url
+					// checking description setting
 					else {
-						response = "You didn't provide a valid url";
+
+						// let user know what the description is set to
+						if (publicspace.description)
+							response = "I'm using this description for this space: "+publicspace.description;
+						else
+							response = "I'm not using a description for this space";
 						sendResponse(message.roomId, response);
-						return;
+
 					}
 
 				}
 
-				// get the space details from the db
-				Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
+			});
 
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
+		}
 
-					// not found in db
-					else if (!publicspace) {
+		// revert to previous shortId for this space
+		else if (commandMatch('url\\s+previous\\b', message.text)) {
 
-						// get space details
-						webexteams.rooms.get(message.roomId)
+			// check if permitted to issue this command
+			if (
+				req.body.room.isLocked
+				&& !req.body.membership.isModerator
+				) {
 
-						// found space
-						.then(function(space) {
-
-							// make it public
-							createPublicSpace(req, space, { logoUrl: logoUrl });
-
-						})
-
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
-						});
-
-					}
-
-					// found an entry in the db
-					else if (publicspace) {
-
-						// update the logo if a url was provided
-						if (logoUrl !== "") {
-
-							// set logo
-							publicspace.logoUrl = logoUrl;
-
-							// update db
-							updatePublicSpace(publicspace, function(){
-
-								// let user know the logo has been set
-								response = "I'll use that logo for this space. Make sure it looks ok at ["+process.env.BASE_URL+"#"+publicspace.shortId+"]("+process.env.BASE_URL+"#"+publicspace.shortId+")";
-								sendResponse(message.roomId, response);
-
-							});
-
-						}
-
-						// checking logo setting
-						else {
-
-							// let user know what the logo is set to
-							if (publicspace.logoUrl)
-								response = "I'm using this logo for this space: "+publicspace.logoUrl;
-							else
-								response = "I'm using my avatar as the logo for this space";
-							sendResponse(message.roomId, response);
-
-						}
-
-					}
-
-				});
+				// respond with error and stop processing this command
+				sendPermissionDenied(req.body.room.id);
+				return;
 
 			}
 
-			// don't show space publicly
-			else if (commandMatch('list\\s+off\\b', message.text)) {
+			// get the space details from the db
+			Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
 
-				// check if permitted to issue this command
-				if (
-					req.body.room.isLocked
-					&& !req.body.membership.isModerator
-					) {
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
 
-					// respond with error and stop processing this command
-					sendPermissionDenied(req.body.room.id);
-					return;
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(message.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public
+						createPublicSpace(req, space);
+
+					})
+
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
 
 				}
 
-				// get the space details from the db
-				Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
+				// found an entry in the db
+				else if (publicspace) {
 
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
+					// save current url and revert to previous shortid
+					var previousShortId = publicspace.shortId;
+					publicspace.shortId = publicspace.previousShortId;
+					publicspace.previousShortId = previousShortId;
 
-					// not found in db
-					else if (!publicspace) {
+					// update db
+					updatePublicSpace(publicspace, function(){
 
-						// get space details
-						webexteams.rooms.get(req.body.data.roomId)
+						// share the new join details
+						sendJoinDetails(publicspace);
 
-						// found space
-						.then(function(space) {
+					});
 
-							// create space so not listed
-							createPublicSpace(req, space, {}, function(publicspace){
+				}
 
-								// send join link
-								sendJoinDetails(publicspace);
+			});
 
-								// let user know the space is not listed
-								response = "I've made sure this space isn't listed at ["+process.env.BASE_URL+"]("+process.env.BASE_URL+")";
-								sendResponse(space.id, response);
+		}
 
-							});
+		// regenerate a new shortid for this space
+		else if (commandMatch('url\\s+new\\b', message.text)) {
 
-						})
+			// check if permitted to issue this command
+			if (
+				req.body.room.isLocked
+				&& !req.body.membership.isModerator
+				) {
 
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
-						});
+				// respond with error and stop processing this command
+				sendPermissionDenied(req.body.room.id);
+				return;
 
-					}
+			}
 
-					// found the space in the db
-					else if (publicspace) {
+			// get the space details from the db
+			Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
 
-						// delist space
-						publicspace.list = false;
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
+
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(message.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public
+						createPublicSpace(req, space);
+
+					})
+
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
+
+				}
+
+				// found an entry in the db
+				else if (publicspace) {
+
+					// save current shortId and set new shortid
+					publicspace.previousShortId = publicspace.shortId;
+					publicspace.shortId = ShortId.generate();
+
+					// update db
+					updatePublicSpace(publicspace, function(){
+
+						// share the new join details
+						sendJoinDetails(publicspace);
+
+					});
+
+				}
+
+			});
+
+		}
+
+		// disable logo for space
+		else if (commandMatch('logo\\s+off\\b', message.text)) {
+
+			// check if permitted to issue this command
+			if (
+				req.body.room.isLocked
+				&& !req.body.membership.isModerator
+				) {
+
+				// respond with error and stop processing this command
+				sendPermissionDenied(req.body.room.id);
+				return;
+
+			}
+
+			// get the space details from the db
+			Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
+
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
+
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(message.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public
+						createPublicSpace(req, space);
+
+					})
+
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
+
+				}
+
+				// found an entry in the db
+				else if (publicspace) {
+
+					// set logo to nothing
+					publicspace.logoUrl = '';
+
+					// update db
+					updatePublicSpace(publicspace, function(){
+
+						// let user know the logo has been set to nothing
+						response = "I'll use my avatar for this space";
+						sendResponse(message.roomId, response);
+
+					});
+
+				}
+
+			});
+
+		}
+
+		// set logo for space
+		else if (commandMatch('logo\\b', message.text)) {
+
+			// check if permitted to issue this command
+			if (
+				req.body.room.isLocked
+				&& !req.body.membership.isModerator
+				) {
+
+				// respond with error and stop processing this command
+				sendPermissionDenied(req.body.room.id);
+				return;
+
+			}
+
+			// parse the logo command they sent
+			var logoUrl = "";
+			var logoCmd = message.text.match(/logo\b\s*([^\b]+)?$/i);
+			if (
+				message.text.match(/logo\b\s*$/) === null
+				&& logoCmd !== null
+				&& logoCmd[1].trim() !== ""
+				) {
+
+				// they provided a url
+				if (validator.isURL(logoCmd[1].trim(), { protocols: ['http','https'] }))
+					logoUrl = logoCmd[1].replace(/(^\[|\]$)/g,'').trim();
+
+				// tell the user they didn't give a url
+				else {
+					response = "You didn't provide a valid url";
+					sendResponse(message.roomId, response);
+					return;
+				}
+
+			}
+
+			// get the space details from the db
+			Publicspace.findOne({ 'spaceId': message.roomId}, function (err, publicspace) {
+
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
+
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(message.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public
+						createPublicSpace(req, space, { logoUrl: logoUrl });
+
+					})
+
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
+
+				}
+
+				// found an entry in the db
+				else if (publicspace) {
+
+					// update the logo if a url was provided
+					if (logoUrl !== "") {
+
+						// set logo
+						publicspace.logoUrl = logoUrl;
 
 						// update db
 						updatePublicSpace(publicspace, function(){
 
-							// let user know the space is not public
-							response = "I've made sure this space isn't listed at ["+process.env.BASE_URL+"]("+process.env.BASE_URL+")";
+							// let user know the logo has been set
+							response = "I'll use that logo for this space. Make sure it looks ok at ["+process.env.BASE_URL+"#"+publicspace.shortId+"]("+process.env.BASE_URL+"#"+publicspace.shortId+")";
 							sendResponse(message.roomId, response);
 
 						});
 
 					}
 
-				});
+					// checking logo setting
+					else {
 
-			}
-
-			// show space publicly
-			else if (commandMatch('list\\b', message.text)) {
-
-				// check if permitted to issue this command
-				if (
-					req.body.room.isLocked
-					&& !req.body.membership.isModerator
-					) {
-
-					// respond with error and stop processing this command
-					sendPermissionDenied(req.body.room.id);
-					return;
-
-				}
-
-				// get the space details from the db
-				Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
-
-					// couldn't get anything from db
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
-
-					// not found in db
-					else if (!publicspace) {
-
-						// get space details
-						webexteams.rooms.get(req.body.data.roomId)
-
-						// found space
-						.then(function(space) {
-
-							// make it public
-							createPublicSpace(req, space, { list: true }, function(publicspace){
-
-								// send join link
-								sendJoinDetails(publicspace);
-
-								// let user know the space is now public
-								response = "I've listed this space for all to see at ["+process.env.BASE_URL+"]("+process.env.BASE_URL+")";
-								sendResponse(space.id, response);
-
-							});
-
-						})
-
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
-						});
+						// let user know what the logo is set to
+						if (publicspace.logoUrl)
+							response = "I'm using this logo for this space: "+publicspace.logoUrl;
+						else
+							response = "I'm using my avatar as the logo for this space";
+						sendResponse(message.roomId, response);
 
 					}
 
-					// found the space in the db
-					else if (publicspace) {
+				}
 
-						// make space public
-						publicspace.list = true;
+			});
 
-						// update db
-						updatePublicSpace(publicspace);/*, function(){
+		}
+
+		// don't show space publicly
+		else if (commandMatch('list\\s+off\\b', message.text)) {
+
+			// check if permitted to issue this command
+			if (
+				req.body.room.isLocked
+				&& !req.body.membership.isModerator
+				) {
+
+				// respond with error and stop processing this command
+				sendPermissionDenied(req.body.room.id);
+				return;
+
+			}
+
+			// get the space details from the db
+			Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
+
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
+
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(req.body.data.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// create space so not listed
+						createPublicSpace(req, space, {}, function(publicspace){
+
+							// send join link
+							sendJoinDetails(publicspace);
+
+							// let user know the space is not listed
+							response = "I've made sure this space isn't listed at ["+process.env.BASE_URL+"]("+process.env.BASE_URL+")";
+							sendResponse(space.id, response);
+
+						});
+
+					})
+
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
+
+				}
+
+				// found the space in the db
+				else if (publicspace) {
+
+					// delist space
+					publicspace.list = false;
+
+					// update db
+					updatePublicSpace(publicspace, function(){
+
+						// let user know the space is not public
+						response = "I've made sure this space isn't listed at ["+process.env.BASE_URL+"]("+process.env.BASE_URL+")";
+						sendResponse(message.roomId, response);
+
+					});
+
+				}
+
+			});
+
+		}
+
+		// show space publicly
+		else if (commandMatch('list\\b', message.text)) {
+
+			// check if permitted to issue this command
+			if (
+				req.body.room.isLocked
+				&& !req.body.membership.isModerator
+				) {
+
+				// respond with error and stop processing this command
+				sendPermissionDenied(req.body.room.id);
+				return;
+
+			}
+
+			// get the space details from the db
+			Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
+
+				// couldn't get anything from db
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
+
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(req.body.data.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public
+						createPublicSpace(req, space, { list: true }, function(publicspace){
+
+							// send join link
+							sendJoinDetails(publicspace);
 
 							// let user know the space is now public
 							response = "I've listed this space for all to see at ["+process.env.BASE_URL+"]("+process.env.BASE_URL+")";
-							sendResponse(message.roomId, response);
+							sendResponse(space.id, response);
 
-						});*/
-
-					}
-
-				});
-
-			}
-
-			// add the user to the support space for this bot if support space id provided
-			else if (
-						process.env.WEBEXTEAMS_SUPPORT_SPACE_ID
-						&& commandMatch('support\\b', message.text)
-						) {
-
-				// add person to support space
-				webexteams.memberships.create({
-					personId: message.personId,
-					roomId: process.env.WEBEXTEAMS_SUPPORT_SPACE_ID
-				})
-
-				// teams api call worked
-				.then(function(membership) {
-
-					sendResponse(message.roomId, "<@personId:"+message.personId+"> I've added you to the support space");
-
-				})
-
-				// failed to call teams api
-				.catch(function(err){
-
-					if (err.name === "Conflict")
-						sendResponse(message.roomId, "<@personId:"+message.personId+"> You're already in the support space");
-					else {
-						sendResponse(message.roomId, "<@personId:"+message.personId+"> I wasn't able to add you to the support space");
-						handleErr(err, false, '', "Couldn't add "+message.personEmail+" to the support space "+process.env.WEBEXTEAMS_SUPPORT_SPACE_ID);
-					}
-
-				});
-
-			}
-
-			// if source url is set, send source link
-			else if (
-				commandMatch('source\\b', message.text)
-				&& sourceUrl != ''
-				) {
-				sendResponse(message.roomId, "You can find the source code for me at " + sourceUrl);
-			}
-
-			// send qr code to space
-			else if (commandMatch('qr\\b', message.text)) {
-
-				// get space from db
-				Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
-
-					// find from db failed
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
-
-					// not found in db
-					else if (!publicspace) {
-
-						// get space details
-						webexteams.rooms.get(req.body.data.roomId)
-
-						// found space
-						.then(function(space) {
-
-							// make it public and send qr code to join
-							createPublicSpace(req, space, {}, function(publicspace){
-								sendJoinDetails(publicspace, { qr: true });
-							});
-
-						})
-
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
 						});
 
-					}
+					})
 
-					// public space already exists in db. send qr code to join
-					else
-						sendJoinDetails(publicspace, { qr: true });
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
 
-				});
+				}
 
-			}
+				// found the space in the db
+				else if (publicspace) {
 
-			// get url to join space
-			else if (
-				commandMatch('url\\b', message.text)
-				|| commandMatch('$', message.text)
-				) {
+					// make space public
+					publicspace.list = true;
 
-				// get space from db
-				Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
+					// update db
+					updatePublicSpace(publicspace);/*, function(){
 
-					// find from db failed
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
+						// let user know the space is now public
+						response = "I've listed this space for all to see at ["+process.env.BASE_URL+"]("+process.env.BASE_URL+")";
+						sendResponse(message.roomId, response);
 
-					// not found in db
-					else if (!publicspace) {
+					});*/
 
-						// get space details
-						webexteams.rooms.get(req.body.data.roomId)
+				}
 
-						// found space
-						.then(function(space) {
+			});
 
-							// make it public
-							createPublicSpace(req, space);
+		}
 
-						})
+		// add the user to the support space for this bot if support space id provided
+		else if (
+					process.env.WEBEXTEAMS_SUPPORT_SPACE_ID
+					&& commandMatch('support\\b', message.text)
+					) {
 
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
+			// add person to support space
+			webexteams.memberships.create({
+				personId: message.personId,
+				roomId: process.env.WEBEXTEAMS_SUPPORT_SPACE_ID
+			})
+
+			// teams api call worked
+			.then(function(membership) {
+
+				sendResponse(message.roomId, "<@personId:"+message.personId+"> I've added you to the support space");
+
+			})
+
+			// failed to call teams api
+			.catch(function(err){
+
+				if (err.name === "Conflict")
+					sendResponse(message.roomId, "<@personId:"+message.personId+"> You're already in the support space");
+				else {
+					sendResponse(message.roomId, "<@personId:"+message.personId+"> I wasn't able to add you to the support space");
+					handleErr(err, false, '', "Couldn't add "+message.personEmail+" to the support space "+process.env.WEBEXTEAMS_SUPPORT_SPACE_ID);
+				}
+
+			});
+
+		}
+
+		// if source url is set, send source link
+		else if (
+			commandMatch('source\\b', message.text)
+			&& sourceUrl != ''
+			) {
+			sendResponse(message.roomId, "You can find the source code for me at " + sourceUrl);
+		}
+
+		// send qr code to space
+		else if (commandMatch('qr\\b', message.text)) {
+
+			// get space from db
+			Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
+
+				// find from db failed
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
+
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(req.body.data.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public and send qr code to join
+						createPublicSpace(req, space, {}, function(publicspace){
+							sendJoinDetails(publicspace, { qr: true });
 						});
 
-					}
+					})
 
-					// public space already exists in db. send join details
-					else
-						sendJoinDetails(publicspace);
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
 
-				});
+				}
 
-			}
+				// public space already exists in db. send qr code to join
+				else
+					sendJoinDetails(publicspace, { qr: true });
 
-			// sent help command or didn't recognize the message content/command. send help
-			else if (commandMatch('', message.text)) {
+			});
 
-				// get space from db
-				Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
+		}
 
-					// find from db failed
-					if (err)
-						handleErr(err, true, message.roomId, "db err");
+		// get url to join space
+		else if (
+			commandMatch('url\\b', message.text)
+			|| commandMatch('$', message.text)
+			) {
 
-					// not found in db
-					else if (!publicspace) {
+			// get space from db
+			Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
 
-						// get space details
-						webexteams.rooms.get(req.body.data.roomId)
+				// find from db failed
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
 
-						// found space
-						.then(function(space) {
+				// not found in db
+				else if (!publicspace) {
 
-							// make it public and send help details
-							createPublicSpace(req, space, {}, function(){
-								sendHelpGroup(publicspace);
-							});
+					// get space details
+					webexteams.rooms.get(req.body.data.roomId)
 
-						})
+					// found space
+					.then(function(space) {
 
-						// failed to get space details
-						.catch(function(err){
-							handleErr(err, true, message.roomId, "failed to get space details");
+						// make it public
+						createPublicSpace(req, space);
+
+					})
+
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
+
+				}
+
+				// public space already exists in db. send join details
+				else
+					sendJoinDetails(publicspace);
+
+			});
+
+		}
+
+		// sent help command or didn't recognize the message content/command. send help
+		else if (commandMatch('', message.text)) {
+
+			// get space from db
+			Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
+
+				// find from db failed
+				if (err)
+					handleErr(err, true, message.roomId, "db err");
+
+				// not found in db
+				else if (!publicspace) {
+
+					// get space details
+					webexteams.rooms.get(req.body.data.roomId)
+
+					// found space
+					.then(function(space) {
+
+						// make it public and send help details
+						createPublicSpace(req, space, {}, function(){
+							sendHelpGroup(publicspace);
 						});
 
-					}
+					})
 
-					// public space already exists in db. send help
-					else
-						sendHelpGroup(publicspace);
+					// failed to get space details
+					.catch(function(err){
+						handleErr(err, true, message.roomId, "failed to get space details");
+					});
 
-				});
+				}
 
-			}
+				// public space already exists in db. send help
+				else
+					sendHelpGroup(publicspace);
 
-		/*
-		})
+			});
 
-		// couldn't get message details
-		.catch(function(err){
-			handleErr(err, true, message.roomId, "couldn't get message details");
-		});
-		*/
+		}
 
 	}
 
@@ -2445,8 +2444,8 @@ function sendPermissionDenied(spaceId) {
 // global function to send direct help
 function sendHelpDirect(spaceId) {
 	let markdown = "I can add users to group spaces. Add me to a group space so I can help people join it.  \n";
-	markdown += "* Sending the **help** command to me in a group space will show the full list of commands available for group spaces.\n\n";
-	markdown += "My functionality in direct spaces is different. In this direct space, you can type a word or phrase and I'll search for available public and internal spaces that match your search term. "
+	markdown += "> Sending the **`help`** command to me in a group space will show the full list of commands available for group spaces.\n\n";
+	markdown += "My functionality in direct spaces is different. In this direct space, you can type a word or phrase and I'll search for available public and internal spaces that match your search term.\n\n"
 	markdown += "For example, searching your available spaces for the word **help**:\n\n"
 	sendResponse(spaceId, markdown);
 }
