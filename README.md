@@ -33,6 +33,9 @@ BASE_URL="https://<hostname>/<path>"
 #The Mongo DB URI to use to store data on public spaces and sessions [required]
 MONGO_URI="mongodb://localhost/publicspaces-webexteams"
 
+#The Mongo DB URI to use to store metrics [optional]
+#METRICS_URI="mongodb://localhost/metrics"
+
 #The access token for the Cisco Webex Teams bot [required]
 #Note: The ciscospark package requires this env variable to be set. That package hasn't changed naming to Webex Teams yet.
 CISCOSPARK_ACCESS_TOKEN="<provided by https://developer.webex.com/>"
