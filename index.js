@@ -239,30 +239,32 @@ if (!process.env.METRICS_URI){
 }
 
 function insertMetric(email, cmd, q) {
-	let domain = getEmailDomain(email);
-	domainRes = metrics_db.collection('domains').findOne({"name":domain}, function (err, res) {
-		if (err) return handleErr(err);
-		let domainId;
-		if (res == null){
-			metrics_db.collection('counters').findOneAndUpdate({ '_id': "domain_id" },
-																												 { '$inc': {'seq': 1}},
-																												 { returnOriginal: false },
-																												 function (cerr, cres) {
-				console.log("cres");
-				console.log(cres);
-				domainId = cres.value.seq;
-				console.log(domainId);
-				metrics_db.collection('domains').insertOne({"id":domainId, "name":domain}, function (derr, dres) {
-					if (derr) return handleErr(derr);
-					console.log('Number of Domains inserted: '+ dres.insertedCount);
-					insertMetricFinal(email, cmd, q, domainId);
+	if (metrics_db != null){
+		let domain = getEmailDomain(email);
+		domainRes = metrics_db.collection('domains').findOne({"name":domain}, function (err, res) {
+			if (err) return handleErr(err);
+			let domainId;
+			if (res == null){
+				metrics_db.collection('counters').findOneAndUpdate({ '_id': "domain_id" },
+																													 { '$inc': {'seq': 1}},
+																													 { returnOriginal: false },
+																													 function (cerr, cres) {
+					console.log("cres");
+					console.log(cres);
+					domainId = cres.value.seq;
+					console.log(domainId);
+					metrics_db.collection('domains').insertOne({"id":domainId, "name":domain}, function (derr, dres) {
+						if (derr) return handleErr(derr);
+						console.log('Number of Domains inserted: '+ dres.insertedCount);
+						insertMetricFinal(email, cmd, q, domainId);
+					});
 				});
-			});
-		} else {
-			domainId = res["id"];
-			insertMetricFinal(email, cmd, q, domainId);
-		}
-	});
+			} else {
+				domainId = res["id"];
+				insertMetricFinal(email, cmd, q, domainId);
+			}
+		});
+	}
 }
 
 function insertMetricFinal(email, cmd, q, domain) {
@@ -312,13 +314,6 @@ var sessionStore = new mongoDBStore({
 	uri: process.env.MONGO_URI,
 	collection: 'sessions'
 });
-
-/*
-var metricsStore = new mongoDBStore({
-	uri: process.env.METRICS_URI,
-	collection: 'metrics'
-});*/
-
 
 
 // handle errors for session store
