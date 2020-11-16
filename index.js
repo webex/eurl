@@ -134,7 +134,8 @@ const validator = require('validator');
 const he = require('he');
 const crypto = require('crypto');
 const qr = require('qr-image');
-const mongoose = require('mongoose').connect(
+let mongoose_module = require('mongoose')
+const mongoose = mongoose_module.connect(
 		process.env.MONGO_URI,
 		{
 			useNewUrlParser: true,
@@ -142,6 +143,7 @@ const mongoose = require('mongoose').connect(
 			useFindAndModify: false
 		}
 	);
+var Promise = require('bluebird');
 const express = require('express');
 const session = require('express-session');
 const mongoDBStore = require('connect-mongodb-session')(session);
@@ -218,6 +220,66 @@ const textParser = new bodyParser.text({
 	type: '*/*'
 });
 
+var metrics_db = null;
+if (!process.env.METRICS_URI){
+	console.log('Warn: No METRICS_URI set, so cannot report metric data.');
+}else{
+	if (!process.env.METRICS_BOT_ID) {
+		console.log('Error: When using METRICS_URI, you must specify an integer value for "METRICS_BOT_ID".');
+		process.exit(1);
+	}
+	var MongoClient = require('mongodb').MongoClient;
+	MongoClient.connect(process.env.METRICS_URI, { promiseLibrary: Promise }, (err, db) => {
+  	if (err) {
+    	logger.warn(`Failed to connect to the database. ${err.stack}`);
+  	}
+  	metrics_db = db;
+	});
+	console.log('Info: Metrics will be reported to the provided METRICS_URI.');
+}
+
+function insertMetric(email, cmd, q) {
+	let domain = getEmailDomain(email);
+	domainRes = metrics_db.collection('domains').findOne({"name":domain}, function (err, res) {
+		if (err) return handleErr(err);
+		let domainId;
+		if (res == null){
+			metrics_db.collection('counters').findOneAndUpdate({ '_id': "domain_id" },
+																												 { '$inc': {'seq': 1}},
+																												 { returnOriginal: false },
+																												 function (cerr, cres) {
+				console.log("cres");
+				console.log(cres);
+				domainId = cres.value.seq;
+				console.log(domainId);
+				metrics_db.collection('domains').insertOne({"id":domainId, "name":domain}, function (derr, dres) {
+					if (derr) return handleErr(derr);
+					console.log('Number of Domains inserted: '+ dres.insertedCount);
+					insertMetricFinal(email, cmd, q, domainId);
+				});
+			});
+		} else {
+			domainId = res["id"];
+			insertMetricFinal(email, cmd, q, domainId);
+		}
+	});
+}
+
+function insertMetricFinal(email, cmd, q, domain) {
+	let metricObj = { botId:parseInt(process.env.METRICS_BOT_ID),
+										personEmail: email,
+										domainId:domain,
+										time_stamp:new Date(),
+										command:cmd,
+										query:q };
+
+	metrics_db.collection('metrics').insertOne(metricObj, function (err, res) {
+		if (err) return handleErr(err);
+		console.log()
+		console.log('Number of Metrics inserted: '+ res.insertedCount);
+	});
+}
+
 // winston filter for sensitive data
 var expressWinstonReqFilter = function (req, propName) {
 	if (propName == 'headers' && req[propName].cookie)
@@ -250,6 +312,14 @@ var sessionStore = new mongoDBStore({
 	uri: process.env.MONGO_URI,
 	collection: 'sessions'
 });
+
+/*
+var metricsStore = new mongoDBStore({
+	uri: process.env.METRICS_URI,
+	collection: 'metrics'
+});*/
+
+
 
 // handle errors for session store
 sessionStore.on('error', function(error) {
@@ -861,6 +931,7 @@ app.post('/api/shortid/:shortId', jsonParser, function(req, res){
 
 			// was able to add user
 			log.info("added user to space", membership.id);
+			insertMetric(email, "add_membership", null);
 			res.json({ responseCode: 0, spaceId: spaceId });
 
 		})
@@ -1118,11 +1189,12 @@ app.post('/api/webhooks', function(req, res){
 		var response;
 
 		// get domain for message sender
-		var personDomain = getEmailDomain(req.body.data.personEmail);
+		let personEmail = req.body.data.personEmail;
+		var personDomain = getEmailDomain(personEmail);
 
 		// get message added to req in earlier express webhook route
 		var message = req.body.message;
-
+		let command = "search";
 		// doing search in 1-1 space
 		if (message.roomType == 'direct') {
 
@@ -1135,6 +1207,7 @@ app.post('/api/webhooks', function(req, res){
 			// check if user is asking for help
 			let provideListUrl = "";
 			if (query.match(/^\s*help\s*$/i)) {
+				command = "help";
 				sendHelpDirect(message.roomId);
 				provideListUrl = "\n\nYou can also visit "+process.env.BASE_URL+" for a full list of joinable spaces.\n";
 			}
@@ -1205,18 +1278,15 @@ app.post('/api/webhooks', function(req, res){
 
 					// respond
 					sendResponse(message.roomId, response);
-
 				}
-
 			});
-
 		}
 
 		// rest of checks are for group spaces
 
 		// anyone can join space (default)
 		else if (commandMatch('internal\\s+off\\b', message.text)) {
-
+			command = "internal_off";
 			// check if permitted to issue this command
 			if (
 				req.body.room.isLocked
@@ -1275,7 +1345,7 @@ app.post('/api/webhooks', function(req, res){
 
 		// don't show space externally
 		else if (commandMatch('internal\\b', message.text)) {
-
+			command = "internal";
 			var internalDomains = [
 				personDomain
 				];
@@ -1346,7 +1416,7 @@ app.post('/api/webhooks', function(req, res){
 
 		// disable description for space
 		else if (commandMatch('description\\s+off\\b', message.text)) {
-
+			command = "description_off";
 			// check if permitted to issue this command
 			if (
 				req.body.room.isLocked
@@ -1410,7 +1480,7 @@ app.post('/api/webhooks', function(req, res){
 
 		// set description for space
 		else if (commandMatch('description\\b', message.text)) {
-
+			command = "description";
 			// check if permitted to issue this command
 			if (
 				req.body.room.isLocked
@@ -1495,7 +1565,7 @@ app.post('/api/webhooks', function(req, res){
 
 		// revert to previous shortId for this space
 		else if (commandMatch('url\\s+previous\\b', message.text)) {
-
+			command = "previous";
 			// check if permitted to issue this command
 			if (
 				req.body.room.isLocked
@@ -1560,7 +1630,7 @@ app.post('/api/webhooks', function(req, res){
 
 		// regenerate a new shortid for this space
 		else if (commandMatch('url\\s+new\\b', message.text)) {
-
+			command = "new_url";
 			// check if permitted to issue this command
 			if (
 				req.body.room.isLocked
@@ -1624,7 +1694,7 @@ app.post('/api/webhooks', function(req, res){
 
 		// disable logo for space
 		else if (commandMatch('logo\\s+off\\b', message.text)) {
-
+			command = "logo_off";
 			// check if permitted to issue this command
 			if (
 				req.body.room.isLocked
@@ -1688,7 +1758,7 @@ app.post('/api/webhooks', function(req, res){
 
 		// set logo for space
 		else if (commandMatch('logo\\b', message.text)) {
-
+			command = "logo";
 			// check if permitted to issue this command
 			if (
 				req.body.room.isLocked
@@ -1791,7 +1861,7 @@ app.post('/api/webhooks', function(req, res){
 
 		// don't show space publicly
 		else if (commandMatch('list\\s+off\\b', message.text)) {
-
+			command = "list_off";
 			// check if permitted to issue this command
 			if (
 				req.body.room.isLocked
@@ -1864,7 +1934,7 @@ app.post('/api/webhooks', function(req, res){
 
 		// show space publicly
 		else if (commandMatch('list\\b', message.text)) {
-
+			command = "list";
 			// check if permitted to issue this command
 			if (
 				req.body.room.isLocked
@@ -1940,7 +2010,7 @@ app.post('/api/webhooks', function(req, res){
 					process.env.WEBEXTEAMS_SUPPORT_SPACE_ID
 					&& commandMatch('support\\b', message.text)
 					) {
-
+			command = "support";
 			// add person to support space
 			webexteams.memberships.create({
 				personId: message.personId,
@@ -1951,7 +2021,7 @@ app.post('/api/webhooks', function(req, res){
 			.then(function(membership) {
 
 				sendResponse(message.roomId, "<@personId:"+message.personId+"> I've added you to the support space");
-
+				//insertMetric(message.personEmail, "add_membership", "support");
 			})
 
 			// failed to call teams api
@@ -1973,12 +2043,13 @@ app.post('/api/webhooks', function(req, res){
 			commandMatch('source\\b', message.text)
 			&& sourceUrl != ''
 			) {
+			command = "source";
 			sendResponse(message.roomId, "You can find the source code for me at " + sourceUrl);
 		}
 
 		// send qr code to space
 		else if (commandMatch('qr\\b', message.text)) {
-
+			command = "qr";
 			// get space from db
 			Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
 
@@ -2022,7 +2093,7 @@ app.post('/api/webhooks', function(req, res){
 			commandMatch('url\\b', message.text)
 			|| commandMatch('$', message.text)
 			) {
-
+			command = "url";
 			// get space from db
 			Publicspace.findOne({ 'spaceId': message.roomId }, function (err, publicspace) {
 
@@ -2099,7 +2170,7 @@ app.post('/api/webhooks', function(req, res){
 			});
 
 		}
-
+		insertMetric(personEmail, command, query);
 	}
 
 	// there was a change to the space that a bot is in
@@ -2115,14 +2186,17 @@ app.post('/api/webhooks', function(req, res){
 		.then(function(space) {
 
 			// get space from db
-			Publicspace.findOne({ 'spaceId': space.id}, function (err, publicspace) {
+			Publicspace.findOne({'spaceId': space.id}, function (err, publicspace) {
 
 				// db error
 				if (err)
 					handleErr(err, true, space.id, "db failure");
 
 				// space exists in db and something has changed
-				else if (
+				else {
+					if(publicspace == null || publicspace == undefined){
+						handleErr("publicspace is null", true, space.id, "publicspace is null"); //Added this because Eurl seems to occasionally crash with "TypeError: Cannot read property 'isLocked' of null at /app/index.js:2126:18" - tahanson 11/12/2020
+					} else if (
 					publicspace.isLocked !== space.isLocked
 					|| publicspace.title !== space.title
 					|| (
@@ -2159,6 +2233,7 @@ app.post('/api/webhooks', function(req, res){
 					}
 
 				}
+			}
 
 			});
 
@@ -2454,33 +2529,33 @@ function sendHelpDirect(spaceId) {
 function sendHelpGroup(publicspace) {
 	var supportMarkdown = '', internalMarkdown = '', descriptionMarkdown = '', urlPreviousMarkdown = '', sourceUrlMarkdown = '';
 	if (process.env.WEBEXTEAMS_SUPPORT_SPACE_ID)
-		supportMarkdown = "**`support`** - Join the support space for this bot<br>\n";
+		supportMarkdown = "**`support`** - Join the support space for this bot<br>";
 	if (!process.env.PERMIT_DOMAINS)
-		internalMarkdown = "**`internal [opt. list of domains]`** - Only users from specific domains can join this space<br>\n" + "**`internal off`** - Anyone can join this space<br>\n";
+		internalMarkdown = "**`internal [opt. list of domains]`** - Only users from specific domains can join this space<br>" + "**`internal off`** - Anyone can join this space<br>";
 	if (process.env.DESCRIPTION)
-		descriptionMarkdown = description + "\n\n";
+		descriptionMarkdown = description + "\n";
 	if (publicspace.shortId != publicspace.previousShortId)
-		urlPreviousMarkdown = "**`url previous`** - Revert to the previous url to join this space<br>\n";
+		urlPreviousMarkdown = "**`url previous`** - Revert to the previous url to join this space<br>";
 	if (process.env.SOURCE_URL)
-		sourceUrlMarkdown = "**`source`** - Get the link to the source code for this bot<br>\n";
+		sourceUrlMarkdown = "**`source`** - Get the link to the source code for this bot<br>";
 	var markdown =
 		descriptionMarkdown+
-		"@mention me with one of the following commands<br>\n\n"+
-		"**`url`** - Get details on how someone can join this space<br>\n"+
-		"**`qr`** - Get QR code to join this space<br>\n"+
-		"**`list`** - Anyone can see this space listed at "+process.env.BASE_URL+"<br>\n"+
-		"**`list off`** - Remove this space from public listing at "+process.env.BASE_URL+"<br>\n"+
+		"@mention me with one of the following commands<br>\n"+
+		"**`url`** - Get details on how someone can join this space<br>"+
+		"**`qr`** - Get QR code to join this space<br>"+
+		"**`list`** - Anyone can see this space listed at "+process.env.BASE_URL+"<br>"+
+		"**`list off`** - Remove this space from public listing at "+process.env.BASE_URL+"<br>"+
 		internalMarkdown+
-		"**`logo [opt. url]`** - See or set custom logo (transparent png, 50px width recommended) <br>\n"+
-		"**`logo off`** - Remove custom logo<br>\n"+
-		"**`description [opt. text - no markdown support]`** - See or set description<br>\n"+
-		"**`description off`** - Remove description<br>\n"+
-		"**`url new`** - Create a new url to join this space<br>\n"+
+		"**`logo [opt. url]`** - See or set custom logo (transparent png, 50px width recommended) <br>"+
+		"**`logo off`** - Remove custom logo<br>"+
+		"**`description [opt. text - no markdown support]`** - See or set description<br>"+
+		"**`description off`** - Remove description<br>"+
+		"**`url new`** - Create a new url to join this space<br>"+
 		urlPreviousMarkdown+
 		sourceUrlMarkdown+
 		supportMarkdown+
-		"**`help`** - List commands<br>\n"+
-		"\nYou can message me directly to search public and internal spaces.<br>\n\n";
+		"**`help`** - List commands<br>"+
+		"\nYou can message me directly to search public and internal spaces.<br>\n";
 	sendResponse(publicspace.spaceId, markdown, [], function(){
 		sendJoinDetails(publicspace);
 	});
