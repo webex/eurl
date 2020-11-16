@@ -35,6 +35,8 @@ MONGO_URI="mongodb://localhost/publicspaces-webexteams"
 
 #The Mongo DB URI to use to store metrics [optional]
 #METRICS_URI="mongodb://localhost/metrics"
+#ID used for metrics of this application [optional; required if using METRICS_URI]
+#METRICS_BOT_ID=1
 
 #The access token for the Cisco Webex Teams bot [required]
 #Note: The ciscospark package requires this env variable to be set. That package hasn't changed naming to Webex Teams yet.
