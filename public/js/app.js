@@ -342,8 +342,8 @@ function handleBotResults(data) {
 0=added to space
 1=missing email post var
 2=missing session post var
-3=invlaid email
-4=invlaid session
+3=invalid email
+4=invalid session
 5=already in space
 6=failed to add to space
 7=new teams user and added to space
