@@ -542,14 +542,14 @@ app.get('/api/auth/:email', function(req, res){
 		// teams api call worked
 		.then(function(message) {
 
-			// if there's an existing verificaiton message, remove it
+			// if there's an existing verification message, remove it
 			if (req.session.authMessageId) {
 				webexteams.messages.remove(req.session.authMessageId)
 				.then(function(){})
 				.catch(function(err){});
 			}
 
-			// set new verificaiton message id
+			// set new verification message id
 			req.session.authMessageId = message.id;
 
 			// return success to web app
@@ -707,8 +707,8 @@ app.post('/api/shortid/:shortId', jsonParser, function(req, res){
 	possible response codes
 	0=added to space
 	2=email is not teams enabled
-	3=invlaid email
-	4=invlaid session
+	3=invalid email
+	4=invalid session
 	5=already in space
 	6=failed to add to space
 	7=general failure
@@ -961,7 +961,7 @@ app.post('/api/webhooks', textParser, function(req, res, next){
 		}
 	}
 
-	// create objext from body of webhook
+	// create object from body of webhook
 	req.body = JSON.parse(req.body);
 	log.debug('webhook body: ', req.body);
 
@@ -1080,7 +1080,7 @@ app.post('/api/webhooks', textParser, function(req, res, next){
 app.post('/api/webhooks', function(req, res){
 
 /*
-	// create objext from body of webhook
+	// create object from body of webhook
 	req.body = JSON.parse(req.body);
 	log.debug('webhook body: ', req.body);
 */
@@ -2722,11 +2722,11 @@ function membershipsCacheJob(job) {
 	// hold promise for job
 	var promise;
 
-	// initial call to get members from spcae
+	// initial call to get members from space
 	if (job.type === "space")
 		promise = webexteams.memberships.list({roomId: job.spaceId});
 
-	// a job to handle paging of results from first call to memeberships
+	// a job to handle paging of results from first call to memberships
 	else if (job.type === "next")
 		promise = job.data.next();
 
@@ -2736,7 +2736,7 @@ function membershipsCacheJob(job) {
 	// call to teams api was successful
 	.then(function(memberships){
 
-		// iteraite through the memberships and add to cache
+		// iterate through the memberships and add to cache
 		memberships.items.forEach(function(membership){
 
 			// check if email domain is permitted before adding to cache
@@ -2830,7 +2830,7 @@ function processJobs(jobs) {
 		// there are jobs so not done
 		done = false;
 
-		// need to wait pefore processing more jobs
+		// need to wait before processing more jobs
 		if ((new Date()).getTime() <= jobs.wait)
 			return;
 
