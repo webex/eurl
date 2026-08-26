@@ -2533,6 +2533,8 @@ function sendJoinDetails(publicspace, options = {}) {
 			var who = "Anyone";
 			var listed = "";
 			var files = [];
+			// fall back to "this space" for older records where title wasn't yet stored
+			var spaceName = publicspace.title ? "**"+publicspace.title+"**" : "this space";
 
 			if (publicspace.internal)
 				who = "Only users in the domain(s) **"+publicspace.internalDomains.join(", ")+"**";
@@ -2545,11 +2547,11 @@ function sendJoinDetails(publicspace, options = {}) {
 				publicspace.isLocked
 				&& !memberships.items[0].isModerator
 				)
-				response = who+" can **request** to join this space using ["+process.env.BASE_URL+"#"+publicspace.shortId+"]("+process.env.BASE_URL+"#"+publicspace.shortId+")"+listed+". Make me a moderator if you want me to add them for you.";
+				response = who+" can **request** to join "+spaceName+" using ["+process.env.BASE_URL+"#"+publicspace.shortId+"]("+process.env.BASE_URL+"#"+publicspace.shortId+")"+listed+". Make me a moderator if you want me to add them for you.";
 
 			// space is unlocked or locked and bot is mod
 			else
-				response = who+" can join this space using ["+process.env.BASE_URL+"#"+publicspace.shortId+"]("+process.env.BASE_URL+"#"+publicspace.shortId+")"+listed;
+				response = who+" can join "+spaceName+" using ["+process.env.BASE_URL+"#"+publicspace.shortId+"]("+process.env.BASE_URL+"#"+publicspace.shortId+")"+listed;
 
 			// add qr if requested
 			if (
